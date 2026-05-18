@@ -58,6 +58,8 @@ def init_db():
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(cards)").fetchall()}
         if "partner" not in cols:
             conn.execute("ALTER TABLE cards ADD COLUMN partner TEXT DEFAULT '自社'")
+        if "is_stock" not in cols:
+            conn.execute("ALTER TABLE cards ADD COLUMN is_stock INTEGER DEFAULT 0")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tag_masters (
@@ -155,6 +157,9 @@ def init_db():
             )
             """
         )
+        ev_cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
+        if "is_stock" not in ev_cols:
+            conn.execute("ALTER TABLE events ADD COLUMN is_stock INTEGER DEFAULT 0")
 
 
 # --- cards -------------------------------------------------------------------
@@ -163,7 +168,8 @@ def init_db():
 def get_cards(month):
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM cards WHERE month=? ORDER BY day, sort_order, id",
+            "SELECT * FROM cards WHERE month=? AND is_stock=0 "
+            "ORDER BY day, sort_order, id",
             (month,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -172,31 +178,75 @@ def get_cards(month):
 def add_card(month, day, destination, truck, person, time, color, partner="自社"):
     with _conn() as conn:
         n = conn.execute(
-            "SELECT COUNT(*) FROM cards WHERE month=? AND day=?", (month, day)
+            "SELECT COUNT(*) FROM cards WHERE month=? AND day=? AND is_stock=0",
+            (month, day),
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO cards "
-            "(month, day, destination, truck, person, time, color, sort_order, partner, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "(month, day, destination, truck, person, time, color, sort_order, partner, is_stock, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
-                month,
-                day,
-                destination,
-                truck,
-                person,
-                time,
-                color,
-                n,
-                partner,
+                month, day, destination, truck, person, time,
+                color, n, partner, 0,
                 datetime.now().isoformat(timespec="seconds"),
             ),
+        )
+
+
+def add_card_to_stock(destination, truck, person, time, color, partner="自社"):
+    """Add a card to the stock (駒台) pool, with no date assigned yet."""
+    with _conn() as conn:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM cards WHERE is_stock=1"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO cards "
+            "(month, day, destination, truck, person, time, color, sort_order, partner, is_stock, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "STOCK", 0,
+                destination, truck, person, time, color,
+                n, partner, 1,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+
+
+def get_stock_cards():
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM cards WHERE is_stock=1 ORDER BY sort_order, id"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def place_card(card_id, month_key, day, sort_order=0):
+    """Place (or move) a card onto a specific (month_key, day)."""
+    ts = datetime.now().isoformat(timespec="seconds")
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE cards SET is_stock=0, month=?, day=?, sort_order=?, "
+            "updated_at=? WHERE id=?",
+            (month_key, day, sort_order, ts, card_id),
+        )
+
+
+def unplace_card(card_id):
+    """Return a card to the stock (駒台)."""
+    ts = datetime.now().isoformat(timespec="seconds")
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE cards SET is_stock=1, month='STOCK', day=0, "
+            "updated_at=? WHERE id=?",
+            (ts, card_id),
         )
 
 
 def get_cards_by_day(month, day):
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM cards WHERE month=? AND day=? ORDER BY sort_order, id",
+            "SELECT * FROM cards WHERE month=? AND day=? AND is_stock=0 "
+            "ORDER BY sort_order, id",
             (month, day),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -578,7 +628,8 @@ EVENT_COLORS = {
 def list_events(month):
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM events WHERE month=? ORDER BY day, id", (month,)
+            "SELECT * FROM events WHERE month=? AND is_stock=0 ORDER BY day, id",
+            (month,),
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -597,14 +648,64 @@ def add_event(month, day, title, color="red", span_days=1, note=""):
         span_days = 1
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO events (month, day, span_days, title, color, note, created_at) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO events (month, day, span_days, title, color, note, is_stock, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
             (
                 month, day, span_days, title,
                 _safe_str(color) or "red",
                 _safe_str(note).strip(),
+                0,
                 datetime.now().isoformat(timespec="seconds"),
             ),
+        )
+
+
+def add_event_to_stock(title, color="red", span_days=1, note=""):
+    """Add an event to the stock pool (駒台), no date yet."""
+    title = _safe_str(title).strip()
+    if not title:
+        return
+    try:
+        span_days = max(1, int(span_days))
+    except (TypeError, ValueError):
+        span_days = 1
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO events (month, day, span_days, title, color, note, is_stock, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "STOCK", 0, span_days, title,
+                _safe_str(color) or "red",
+                _safe_str(note).strip(),
+                1,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+
+
+def get_stock_events():
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE is_stock=1 ORDER BY id"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def place_event(event_id, month_key, day):
+    ts = datetime.now().isoformat(timespec="seconds")
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE events SET is_stock=0, month=?, day=?, created_at=? WHERE id=?",
+            (month_key, day, ts, event_id),
+        )
+
+
+def unplace_event(event_id):
+    ts = datetime.now().isoformat(timespec="seconds")
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE events SET is_stock=1, month='STOCK', day=0, created_at=? WHERE id=?",
+            (ts, event_id),
         )
 
 

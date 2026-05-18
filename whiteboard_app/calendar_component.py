@@ -14,6 +14,50 @@ _HTML = "<div id='board'></div>"
 
 _CSS = """
 #board { font-family: sans-serif; }
+.stock-area {
+    background: #fff8e1;
+    border: 2px dashed #f9a825;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+}
+.stock-area.over { outline: 3px solid #2196f3; background: #fff3cd; }
+.stock-header {
+    font-weight: bold;
+    color: #b45309;
+    font-size: 13px;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.stock-header .hint {
+    font-weight: normal;
+    color: #888;
+    font-size: 11px;
+}
+.stock-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 36px;
+    align-content: flex-start;
+}
+.stock-items .card {
+    font-size: 12px;
+    padding: 5px 9px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+    min-width: 60px;
+}
+.stock-items .card.is-event {
+    color: #fff;
+    font-weight: 600;
+    border-style: solid;
+    border-width: 1.5px;
+}
 .strip {
     display: grid;
     gap: 2px;
@@ -170,6 +214,29 @@ export default function(component) {
         return strip;
     }
 
+    // --- Stock area (駒台) — drop target above the calendar strips ---
+    const stockCards = data.stock_cards || [];
+    const stockEvents = data.stock_events || [];
+    const stockTotal = stockCards.length + stockEvents.length;
+
+    const stockArea = document.createElement('div');
+    stockArea.className = 'stock-area';
+    stockArea.dataset.stock = '1';
+    const stockHead = document.createElement('div');
+    stockHead.className = 'stock-header';
+    stockHead.innerHTML = `<span>🎯 駒台 (未配置 ${stockTotal} 件)</span>` +
+        `<span class="hint">ここから日付セルへドラッグして配置 / 日付からここへ戻すと未配置に</span>`;
+    stockArea.appendChild(stockHead);
+    const stockItems = document.createElement('div');
+    stockItems.className = 'cards stock-items';
+    stockArea.appendChild(stockItems);
+
+    stockCards.forEach(c => stockItems.appendChild(makeStockItem(c, 'card')));
+    stockEvents.forEach(ev => stockItems.appendChild(makeStockItem(ev, 'event')));
+
+    host.appendChild(stockArea);
+    cells.push(stockArea);
+
     const half1 = days.slice(0, 14);
     const half2 = days.slice(14, 28);
     host.appendChild(buildStrip(half1));
@@ -179,9 +246,28 @@ export default function(component) {
         const el = document.createElement('div');
         el.className = 'card';
         el.dataset.id = String(c.id);
+        el.dataset.type = 'card';
         el.style.background = COLORS[c.color] || '#eeeeee';
         el.textContent = c.text || '(空札)';
         el.title = c.text || '(空札)';
+        el.addEventListener('pointerdown', onDown);
+        return el;
+    }
+
+    function makeStockItem(item, type) {
+        const el = document.createElement('div');
+        const isEvent = type === 'event';
+        el.className = 'card' + (isEvent ? ' is-event' : '');
+        el.dataset.id = String(item.id);
+        el.dataset.type = type;
+        const palette = isEvent ? EVENT_COLORS : COLORS;
+        el.style.background = palette[item.color] || (isEvent ? '#c0392b' : '#eee');
+        el.style.borderColor = isEvent ? '#5d2820' : '#888';
+        const label = item.text || item.title || '(無題)';
+        el.textContent = isEvent && item.span_days > 1
+            ? `${label} (×${item.span_days}日)`
+            : label;
+        el.title = label + (item.note ? ' / ' + item.note : '');
         el.addEventListener('pointerdown', onDown);
         return el;
     }
@@ -258,15 +344,18 @@ export default function(component) {
     function emitLayout() {
         const layout = [];
         cells.forEach(cell => {
-            const day = Number(cell.dataset.day);
-            const monthKey = cell.dataset.monthKey;
-            if (!monthKey) return;
+            const isStock = cell.dataset.stock === '1';
+            const day = isStock ? 0 : Number(cell.dataset.day);
+            const monthKey = isStock ? 'STOCK' : cell.dataset.monthKey;
+            if (!isStock && !monthKey) return;
             cell.querySelectorAll('.cards .card').forEach((c, idx) => {
                 layout.push({
                     id: Number(c.dataset.id),
+                    type: c.dataset.type || 'card',
                     day: day,
                     month_key: monthKey,
                     order: idx,
+                    is_stock: isStock ? 1 : 0,
                 });
             });
         });

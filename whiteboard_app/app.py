@@ -136,46 +136,113 @@ if temp != db.get_state("temperature"):
 
 st.sidebar.markdown("---")
 
-# --- マスタ管理 -----------------------------------------------------------
-with st.sidebar.expander("📦 マスタ管理", expanded=False):
-    st.caption(
-        "行先・車番・氏名・協力会社の選択肢を編集します。"
-        " 当日/翌日表のドロップダウンと、公休/イベントの選択肢の元になります。"
-    )
-    for kind, label in [
-        ("destination", "行先"),
-        ("truck", "車番"),
-        ("person", "氏名"),
-        ("partner", "協力会社"),
-    ]:
-        st.markdown(f"**{label}**")
-        rows = [{"label": t["label"], "color": t["color"]}
-                for t in db.list_tags(kind)]
-        master_df = pd.DataFrame(
-            rows if rows else [],
-            columns=["label", "color"],
-        )
-        edited = st.data_editor(
-            master_df,
-            num_rows="dynamic",
-            key=f"master_{kind}",
-            column_config={
-                "label": st.column_config.TextColumn(label, required=True),
-                "color": st.column_config.SelectboxColumn(
-                    "色", options=list(db.COLORS.keys())
-                ),
-            },
-            use_container_width=True,
-            hide_index=True,
-        )
-        if st.button(f"{label} を保存", key=f"save_master_{kind}",
-                     use_container_width=True):
-            out = edited.to_dict(orient="records") if hasattr(edited, "to_dict") else list(edited)
-            db.replace_tags(kind, out)
+# --- お知らせ投稿 ----------------------------------------------------------
+with st.sidebar.expander("📣 お知らせ投稿", expanded=False):
+    with st.form("ann_form", clear_on_submit=True):
+        new_ann = st.text_area("お知らせ本文", "")
+        ac1, ac2 = st.columns(2)
+        ann_level = ac1.selectbox("種別", ["info", "warn", "alert"])
+        ann_pin = ac2.checkbox("ピン留め")
+        if st.form_submit_button("投稿", use_container_width=True):
+            db.add_announcement(new_ann, ann_level, ann_pin)
             ss.rev += 1
             st.rerun()
 
-# --- 公休者管理 (form 形式) -----------------------------------------------
+# --- 配車予定 (駒台に追加。日付は駒台 → カレンダーへドラッグで設定) -------
+with st.sidebar.expander("🚚 配車予定", expanded=False):
+    st.caption(
+        "札(配車1便分)を作成して駒台に置きます。"
+        " 駒台からカレンダーの日付へドラッグして配置してください。"
+    )
+    with st.form("add_card_stock_form", clear_on_submit=True):
+        c_dest = st.selectbox("行先", [""] + db.tag_labels("destination"))
+        c_truck = st.selectbox("車番", [""] + db.tag_labels("truck"))
+        c_person = st.selectbox("氏名", [""] + db.tag_labels("person"))
+        c_time = st.text_input("出庫時間")
+        c_partner = st.selectbox(
+            "協力会社", db.tag_labels("partner") or ["自社"]
+        )
+        c_color = st.selectbox("色", list(db.COLORS.keys()))
+        if st.form_submit_button("➕ 駒台に追加",
+                                 use_container_width=True, type="primary"):
+            if not any([c_dest, c_truck, c_person, c_time]):
+                st.warning("行先・車番・氏名・時間 のいずれかを入れてください。")
+            else:
+                db.add_card_to_stock(
+                    c_dest, c_truck, c_person, c_time, c_color, c_partner
+                )
+                ss.rev += 1
+                st.rerun()
+
+    stock_cards_side = db.get_stock_cards()
+    if stock_cards_side:
+        st.markdown(f"**駒台にある札 ({len(stock_cards_side)} 件)**")
+        for c in stock_cards_side:
+            cc = st.columns([6, 1])
+            label = " / ".join(
+                p for p in [c.get("destination"), c.get("truck"),
+                            c.get("person"), c.get("time")] if p
+            ) or "(空札)"
+            bg = db.COLORS.get(c["color"], "#eee")
+            cc[0].markdown(
+                f"<div style='background:{bg};border:1px solid #888;"
+                f"border-radius:3px;padding:2px 6px;margin:2px 0;"
+                f"font-size:12px'>{label}</div>",
+                unsafe_allow_html=True,
+            )
+            if cc[1].button("✖", key=f"del_stock_card_{c['id']}",
+                            use_container_width=True):
+                db.delete_card(c["id"])
+                ss.rev += 1
+                st.rerun()
+
+# --- イベント (駒台に追加。日付はカレンダーへドラッグで設定) --------------
+with st.sidebar.expander("📅 月予定イベント", expanded=False):
+    st.caption(
+        "全社会・休業日・定期点検など、月予定に帯表示するイベント。"
+        " 駒台に追加 → カレンダーへドラッグで配置。"
+    )
+    with st.form("add_event_stock_form", clear_on_submit=True):
+        e_title = st.text_input("タイトル",
+                                placeholder="全社会 / 夏期休業 / 定期点検")
+        e_span = st.number_input("日数", min_value=1, max_value=31, value=1)
+        e_color = st.selectbox(
+            "色",
+            list(EVENT_COLOR_LABELS.keys()),
+            format_func=lambda k: EVENT_COLOR_LABELS[k],
+        )
+        e_note = st.text_input("備考 (任意)")
+        if st.form_submit_button("➕ 駒台に追加",
+                                 use_container_width=True, type="primary"):
+            if not e_title.strip():
+                st.warning("タイトルを入れてください。")
+            else:
+                db.add_event_to_stock(e_title, e_color, e_span, e_note)
+                ss.rev += 1
+                st.rerun()
+
+    stock_events_side = db.get_stock_events()
+    if stock_events_side:
+        st.markdown(f"**駒台にあるイベント ({len(stock_events_side)} 件)**")
+        for ev in stock_events_side:
+            cc = st.columns([6, 1])
+            span_txt = (
+                f" (×{ev['span_days']}日)" if ev["span_days"] > 1 else ""
+            )
+            cc[0].markdown(
+                f"<div style='background:{db.EVENT_COLORS.get(ev['color'], '#c0392b')};"
+                f"color:#fff;border-radius:3px;padding:2px 6px;margin:2px 0;"
+                f"font-size:12px;font-weight:600'>"
+                f"{ev['title']}{span_txt}</div>",
+                unsafe_allow_html=True,
+            )
+            if cc[1].button("✖", key=f"del_stock_ev_{ev['id']}",
+                            use_container_width=True):
+                db.delete_event(ev["id"])
+                ss.rev += 1
+                st.rerun()
+
+# --- 公休者管理 (日付あり / フォーム形式) ---------------------------------
 with st.sidebar.expander("🛌 公休者管理", expanded=False):
     persons = db.tag_labels("person")
     with st.form("add_holiday_form", clear_on_submit=True):
@@ -216,59 +283,42 @@ with st.sidebar.expander("🛌 公休者管理", expanded=False):
                 ss.rev += 1
                 st.rerun()
 
-# --- イベント (全社会・休業日など) ---------------------------------------
-with st.sidebar.expander("📅 月予定イベント", expanded=False):
-    st.caption("全社会・休業日・定期点検など、月予定カレンダーに帯表示する予定。")
-    with st.form("add_event_form", clear_on_submit=True):
-        e_title = st.text_input("タイトル",
-                                placeholder="全社会 / 夏期休業 / 定期点検")
-        cc1, cc2 = st.columns(2)
-        e_day = cc1.number_input("開始日", min_value=1, max_value=ndays,
-                                 value=min(base_date.day, ndays))
-        e_span = cc2.number_input("日数", min_value=1, max_value=ndays,
-                                  value=1)
-        e_color = st.selectbox(
-            "色",
-            list(EVENT_COLOR_LABELS.keys()),
-            format_func=lambda k: EVENT_COLOR_LABELS[k],
+# --- マスタ管理 ----------------------------------------------------------
+with st.sidebar.expander("📦 マスタ管理", expanded=False):
+    st.caption(
+        "行先・車番・氏名・協力会社の選択肢を編集します。"
+        " 配車予定/公休者のドロップダウンの元になります。"
+    )
+    for kind, m_label in [
+        ("destination", "行先"),
+        ("truck", "車番"),
+        ("person", "氏名"),
+        ("partner", "協力会社"),
+    ]:
+        st.markdown(f"**{m_label}**")
+        rows = [{"label": t["label"], "color": t["color"]}
+                for t in db.list_tags(kind)]
+        master_df = pd.DataFrame(
+            rows if rows else [],
+            columns=["label", "color"],
         )
-        e_note = st.text_input("備考 (任意)")
-        if st.form_submit_button("追加", use_container_width=True):
-            db.add_event(month_key, e_day, e_title, e_color, e_span, e_note)
-            ss.rev += 1
-            st.rerun()
-
-    existing_events = db.list_events(month_key)
-    if existing_events:
-        st.markdown("**登録済み**")
-        for ev in existing_events:
-            cc = st.columns([6, 1])
-            span_txt = f" (×{ev['span_days']}日)" if ev["span_days"] > 1 else ""
-            color_dot = (
-                f"<span style='display:inline-block;width:10px;height:10px;"
-                f"background:{db.EVENT_COLORS.get(ev['color'], '#999')};"
-                f"border-radius:50%;margin-right:6px'></span>"
-            )
-            cc[0].markdown(
-                f"<div style='font-size:12px;padding:2px 0'>"
-                f"{color_dot}{ev['day']}日{span_txt} / {ev['title']}</div>",
-                unsafe_allow_html=True,
-            )
-            if cc[1].button("✖", key=f"del_ev_{ev['id']}",
-                            use_container_width=True):
-                db.delete_event(ev["id"])
-                ss.rev += 1
-                st.rerun()
-
-# --- お知らせ投稿 ----------------------------------------------------------
-with st.sidebar.expander("📣 お知らせ投稿", expanded=False):
-    with st.form("ann_form", clear_on_submit=True):
-        new_ann = st.text_area("お知らせ本文", "")
-        ac1, ac2 = st.columns(2)
-        ann_level = ac1.selectbox("種別", ["info", "warn", "alert"])
-        ann_pin = ac2.checkbox("ピン留め")
-        if st.form_submit_button("投稿", use_container_width=True):
-            db.add_announcement(new_ann, ann_level, ann_pin)
+        edited = st.data_editor(
+            master_df,
+            num_rows="dynamic",
+            key=f"master_{kind}",
+            column_config={
+                "label": st.column_config.TextColumn(m_label, required=True),
+                "color": st.column_config.SelectboxColumn(
+                    "色", options=list(db.COLORS.keys())
+                ),
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+        if st.button(f"{m_label} を保存", key=f"save_master_{kind}",
+                     use_container_width=True):
+            out = edited.to_dict(orient="records") if hasattr(edited, "to_dict") else list(edited)
+            db.replace_tags(kind, out)
             ss.rev += 1
             st.rerun()
 
@@ -466,7 +516,8 @@ def card_text(c):
 st.subheader("📅 月間予定表")
 st.caption(
     f"基準日 {base_date.month}/{base_date.day} から 28日ローリング "
-    "(2週間 + 2週間)。札はドラッグで日付間を移動できます (月跨ぎも可)。"
+    "(2週間 + 2週間)。サイドバーから駒台に追加 → 駒台からドラッグで配置。"
+    "配置済みの札は日付間ドラッグで移動できます。"
 )
 
 # Build per-day entries with month key + show_month flag
@@ -486,7 +537,7 @@ for d in window_days:
     })
     prev_mk = mk_d
 
-# Collect cards / events that fall on any day in the window
+# Cards / events placed on calendar (within window)
 window_card_ids = set()
 cards_payload = []
 events_payload = []
@@ -514,6 +565,24 @@ for mk_d, evs in window_events_by_mk.items():
             "span_days": e["span_days"], "note": e["note"],
         })
 
+# Stock (駒台) items
+stock_cards = db.get_stock_cards()
+stock_events = db.get_stock_events()
+stock_cards_payload = [
+    {"id": c["id"], "type": "card",
+     "text": card_text(c) or "(空札)",
+     "color": c["color"]}
+    for c in stock_cards
+]
+stock_events_payload = [
+    {"id": e["id"], "type": "event",
+     "text": e["title"],
+     "color": e["color"],
+     "span_days": e["span_days"],
+     "note": e["note"]}
+    for e in stock_events
+]
+
 cb_data = {
     "days": days_payload,
     "weekday_names": WEEKDAY_JA,
@@ -521,6 +590,8 @@ cb_data = {
     "event_colors": db.EVENT_COLORS,
     "cards": cards_payload,
     "events": events_payload,
+    "stock_cards": stock_cards_payload,
+    "stock_events": stock_events_payload,
     "today_iso": date.today().isoformat(),
 }
 cb = register_calendar_board()
@@ -532,120 +603,46 @@ layout_result = cb(
 )
 layout = layout_result.get("layout") if layout_result else None
 if layout:
-    # original: id -> (month_key, day, sort_order)
-    original = {
-        c["id"]: (_mk_c, c["day"], c["sort_order"])
-        for _mk_c, lst in window_cards_by_mk.items()
-        for c in lst
-    }
+    # Original positions: keyed by (type, id) -> (month_key, day, is_stock)
+    original = {}
+    for c in stock_cards:
+        original[("card", c["id"])] = ("STOCK", 0, 1)
+    for e in stock_events:
+        original[("event", e["id"])] = ("STOCK", 0, 1)
+    for _mk_c, lst in window_cards_by_mk.items():
+        for c in lst:
+            original[("card", c["id"])] = (_mk_c, c["day"], 0)
+
     for it in layout:
-        cid = int(it["id"])
-        new_mk = it.get("month_key") or month_key
-        new_day = int(it["day"])
-        new_order = int(it["order"])
-        cur = original.get(cid)
-        if cur is None or cur != (new_mk, new_day, new_order):
-            db.update_card(cid, month=new_mk, day=new_day,
-                           sort_order=new_order)
+        try:
+            cid = int(it["id"])
+        except (TypeError, ValueError):
+            continue
+        typ = it.get("type", "card")
+        new_mk = it.get("month_key") or "STOCK"
+        new_day = int(it.get("day") or 0)
+        new_order = int(it.get("order") or 0)
+        new_stock = int(it.get("is_stock") or 0)
+        cur = original.get((typ, cid))
+        if cur is None:
+            continue
+        cur_mk, cur_day, cur_stock = cur
+        if (cur_mk, cur_day, cur_stock) == (new_mk, new_day, new_stock):
+            continue
+        if typ == "card":
+            if new_stock:
+                db.unplace_card(cid)
+            else:
+                db.place_card(cid, new_mk, new_day, new_order)
+        elif typ == "event":
+            if new_stock:
+                db.unplace_event(cid)
+            else:
+                db.place_event(cid, new_mk, new_day)
 
 st.markdown("---")
 
 
-# ---------------------------------------------------------------------------
-# 予定の追加・削除 (1便ずつ即時追加。月間予定表と同じ cards テーブル)
-# ---------------------------------------------------------------------------
-
-week_end = base_date + timedelta(days=27)
-st.subheader("📋 予定の追加・削除")
-st.caption(
-    f"カレンダーに表示している {base_date.month}/{base_date.day} 〜 "
-    f"{week_end.month}/{week_end.day} の予定を追加・削除します。"
-    " 月間予定表と同じデータで、ここで追加すれば上のカレンダーにも即時反映されます。"
-)
-
-with st.form("add_plan_form", clear_on_submit=True):
-    fc = st.columns([2, 2, 2, 2, 1.6, 1.6, 1.2])
-    p_date = fc[0].date_input(
-        "日付", value=base_date,
-        min_value=base_date, max_value=week_end,
-        key="add_plan_date",
-    )
-    p_dest = fc[1].selectbox(
-        "行先", [""] + db.tag_labels("destination"), key="add_plan_dest"
-    )
-    p_truck = fc[2].selectbox(
-        "車番", [""] + db.tag_labels("truck"), key="add_plan_truck"
-    )
-    p_person = fc[3].selectbox(
-        "氏名", [""] + db.tag_labels("person"), key="add_plan_person"
-    )
-    p_time = fc[4].text_input("出庫時間", key="add_plan_time")
-    p_partner_opts = db.tag_labels("partner") or ["自社"]
-    p_partner = fc[5].selectbox("協力会社", p_partner_opts, key="add_plan_partner")
-    p_color = fc[6].selectbox(
-        "色", list(db.COLORS.keys()), key="add_plan_color"
-    )
-    submitted = st.form_submit_button(
-        "➕ 予定を追加", use_container_width=True, type="primary"
-    )
-    if submitted:
-        if not any([p_dest, p_truck, p_person, p_time]):
-            st.warning("行先・車番・氏名・時間 のいずれかを1つ以上入れてください。")
-        else:
-            db.add_card(
-                _mk(p_date), p_date.day,
-                p_dest, p_truck, p_person, p_time,
-                p_color, p_partner,
-            )
-            ss.rev += 1
-            st.success(
-                f"{p_date.month}/{p_date.day} の予定を追加しました。"
-            )
-            st.rerun()
-
-# 一覧 (28日分を時系列順に表示、各行に削除ボタン)
-window_cards_sorted = []
-for d in window_days:
-    mk_d = _mk(d)
-    for c in window_cards_by_mk.get(mk_d, []):
-        if c["day"] == d.day:
-            window_cards_sorted.append((d, c))
-
-if window_cards_sorted:
-    st.markdown(
-        f"<div style='color:#666;font-size:12px;margin:8px 0'>"
-        f"登録済み {len(window_cards_sorted)} 件 (基準日から28日分)"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    for d, c in window_cards_sorted:
-        wd_label = WEEKDAY_JA[d.weekday()]
-        bg = db.COLORS.get(c["color"], "#eee")
-        is_weekend = d.weekday() >= 5
-        date_color = "#c0392b" if is_weekend else "#222"
-        row_cols = st.columns([7, 1])
-        row_cols[0].markdown(
-            f"<div style='background:{bg};border:1px solid #aaa;"
-            f"border-radius:4px;padding:6px 10px;margin:3px 0;font-size:13px'>"
-            f"<b style='color:{date_color}'>{d.month}/{d.day}({wd_label})</b> "
-            f" {c.get('time','') or '--:--'} / "
-            f"{c.get('destination','') or '—'} / "
-            f"{c.get('truck','') or '—'} / "
-            f"{c.get('person','') or '—'} "
-            f"<span style='color:#666;font-size:11px;margin-left:8px'>"
-            f"({c.get('partner','自社')})</span>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-        if row_cols[1].button("✖", key=f"del_card_{c['id']}",
-                              use_container_width=True):
-            db.delete_card(c["id"])
-            ss.rev += 1
-            st.rerun()
-else:
-    st.info("この期間には予定がまだありません。上のフォームから追加してください。")
-
-st.markdown("---")
 
 
 # ---------------------------------------------------------------------------
