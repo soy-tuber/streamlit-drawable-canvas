@@ -127,7 +127,11 @@ if temp != db.get_state("temperature"):
     db.set_state("temperature", temp)
 
 with st.sidebar.expander("📦 マスタ管理", expanded=False):
-    st.caption("行先・車番・氏名・協力会社のタグを編集できます。")
+    st.caption(
+        "行先・車番・氏名・協力会社の選択肢(=マスタ)を編集します。"
+        " ここで登録した文字列が、当日/翌日表のドロップダウンと"
+        " カレンダーの札の構成要素になります。"
+    )
     for kind, label in [
         ("destination", "行先"),
         ("truck", "車番"),
@@ -402,32 +406,97 @@ with main_r:
 st.markdown("---")
 
 # ---------------------------------------------------------------------------
-# タグストック
+# マスタ使用状況 (informational; not editable here — manage in sidebar)
 # ---------------------------------------------------------------------------
 
-st.subheader("🏷 タグストック")
-
-
-def _chips(tags):
-    if not tags:
-        return "<span style='color:#999'>(なし)</span>"
-    return "".join(
-        f"<span style='display:inline-block;background:{db.COLORS.get(t['color'], '#eee')};"
-        f"border:1px solid #888;border-radius:14px;padding:3px 10px;margin:3px;"
-        f"font-size:13px;font-weight:500'>{t['label']}</span>"
-        for t in tags
+with st.expander("📘 用語ガイド (マスタ と 札 の違い)", expanded=False):
+    st.markdown(
+        "- **マスタ**: 行先・車番・氏名・協力会社の "
+        "**選択肢の辞書** (サイドバー「📦 マスタ管理」で編集)。"
+        " 当日/翌日表のドロップダウンと、サイドバー公休フォームの氏名"
+        "リストはここから引かれます。\n"
+        "- **札 (=カード)**: カレンダーに貼られる**1枚の磁石**。"
+        "「行先 + 車番 + 氏名 + 出庫時間 + 色 + 協力会社」の組合せ。"
+        "当日/翌日表で行を編集すると、その日の札が DB に保存されて"
+        "カレンダーにも反映されます。\n"
+        "- マスタは**選択肢**、札は**それを組み合わせて作った実体**、"
+        "という関係です。"
     )
+
+st.subheader("📊 マスタ使用状況 (今月)")
+st.caption(
+    "今月カレンダーに貼られた札の中で、各マスタ項目が何回使われたかを表示します。"
+    " 灰色は未使用。編集はサイドバー「📦 マスタ管理」から。"
+)
+
+
+def _usage_counts(cards):
+    counts = {}
+    for c in cards:
+        for kind, field in [
+            ("destination", "destination"),
+            ("truck", "truck"),
+            ("person", "person"),
+            ("partner", "partner"),
+        ]:
+            v = c.get(field) or ""
+            if v:
+                counts[(kind, v)] = counts.get((kind, v), 0) + 1
+    return counts
+
+
+def _chips_with_count(kind, all_cards):
+    tags = db.list_tags(kind)
+    if not tags:
+        return "<span style='color:#999'>(マスタ未登録)</span>"
+    counts = _usage_counts(all_cards)
+    out = []
+    for t in tags:
+        n = counts.get((kind, t["label"]), 0)
+        bg = db.COLORS.get(t["color"], "#eee") if n > 0 else "#f0f0f0"
+        opacity = "1" if n > 0 else "0.55"
+        border = "#888" if n > 0 else "#ccc"
+        badge = (
+            f"<span style='background:rgba(0,0,0,0.15);color:#fff;border-radius:9px;"
+            f"padding:0 6px;margin-left:6px;font-size:11px;font-weight:600'>"
+            f"{n}</span>"
+        ) if n > 0 else ""
+        out.append(
+            f"<span style='display:inline-flex;align-items:center;"
+            f"background:{bg};border:1px solid {border};border-radius:14px;"
+            f"padding:3px 10px;margin:3px;font-size:13px;font-weight:500;"
+            f"opacity:{opacity}'>{t['label']}{badge}</span>"
+        )
+    return "".join(out)
 
 
 tc1, tc2, tc3, tc4 = st.columns(4)
-tc1.markdown("**行先**", unsafe_allow_html=True)
-tc1.markdown(_chips(db.list_tags("destination")), unsafe_allow_html=True)
-tc2.markdown("**車番**", unsafe_allow_html=True)
-tc2.markdown(_chips(db.list_tags("truck")), unsafe_allow_html=True)
-tc3.markdown("**氏名**", unsafe_allow_html=True)
-tc3.markdown(_chips(db.list_tags("person")), unsafe_allow_html=True)
-tc4.markdown("**協力会社**", unsafe_allow_html=True)
-tc4.markdown(_chips(db.list_tags("partner")), unsafe_allow_html=True)
+tc1.markdown(
+    f"**行先** "
+    f"<span style='color:#999;font-size:12px'>{len(db.list_tags('destination'))} 種</span>",
+    unsafe_allow_html=True,
+)
+tc1.markdown(_chips_with_count("destination", all_cards_month),
+             unsafe_allow_html=True)
+tc2.markdown(
+    f"**車番** "
+    f"<span style='color:#999;font-size:12px'>{len(db.list_tags('truck'))} 種</span>",
+    unsafe_allow_html=True,
+)
+tc2.markdown(_chips_with_count("truck", all_cards_month), unsafe_allow_html=True)
+tc3.markdown(
+    f"**氏名** "
+    f"<span style='color:#999;font-size:12px'>{len(db.list_tags('person'))} 種</span>",
+    unsafe_allow_html=True,
+)
+tc3.markdown(_chips_with_count("person", all_cards_month), unsafe_allow_html=True)
+tc4.markdown(
+    f"**協力会社** "
+    f"<span style='color:#999;font-size:12px'>{len(db.list_tags('partner'))} 種</span>",
+    unsafe_allow_html=True,
+)
+tc4.markdown(_chips_with_count("partner", all_cards_month),
+             unsafe_allow_html=True)
 
 st.markdown("---")
 
