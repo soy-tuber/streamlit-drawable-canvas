@@ -39,6 +39,32 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS memos (
+                month      TEXT PRIMARY KEY,
+                json_data  TEXT,
+                image      BLOB,
+                updated_at TEXT
+            )
+            """
+        )
+
+
+def get_memo(month):
+    with _conn() as conn:
+        row = conn.execute("SELECT * FROM memos WHERE month=?", (month,)).fetchone()
+    return dict(row) if row else None
+
+
+def save_memo(month, json_data, image):
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO memos (month, json_data, image, updated_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(month) DO UPDATE SET "
+            "json_data=excluded.json_data, image=excluded.image, updated_at=excluded.updated_at",
+            (month, json_data, image, datetime.now().isoformat(timespec="seconds")),
+        )
 
 
 def get_cards(month):
