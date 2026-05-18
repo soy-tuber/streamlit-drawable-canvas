@@ -141,6 +141,20 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS events (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                month     TEXT    NOT NULL,
+                day       INTEGER NOT NULL,
+                span_days INTEGER DEFAULT 1,
+                title     TEXT    NOT NULL,
+                color     TEXT    DEFAULT 'red',
+                note      TEXT    DEFAULT '',
+                created_at TEXT
+            )
+            """
+        )
 
 
 # --- cards -------------------------------------------------------------------
@@ -481,6 +495,26 @@ def list_holidays(month):
     return [dict(r) for r in rows]
 
 
+def add_holiday(month, day, person, shift="day", note=""):
+    person = _safe_str(person).strip()
+    if not person:
+        return
+    try:
+        day = int(day)
+    except (TypeError, ValueError):
+        day = 1
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO holidays (month, day, person, shift, note) VALUES (?,?,?,?,?)",
+            (month, day, person, _safe_str(shift) or "day", _safe_str(note).strip()),
+        )
+
+
+def delete_holiday(holiday_id):
+    with _conn() as conn:
+        conn.execute("DELETE FROM holidays WHERE id=?", (holiday_id,))
+
+
 def replace_holidays(month, rows):
     with _conn() as conn:
         conn.execute("DELETE FROM holidays WHERE month=?", (month,))
@@ -527,6 +561,59 @@ def add_announcement(text, level="info", pinned=False):
 def delete_announcement(ann_id):
     with _conn() as conn:
         conn.execute("DELETE FROM announcements WHERE id=?", (ann_id,))
+
+
+# --- events ----------------------------------------------------------------
+
+
+EVENT_COLORS = {
+    "red":    "#ff4d4d",
+    "orange": "#ff9900",
+    "blue":   "#1976d2",
+    "green":  "#43a047",
+    "gray":   "#808080",
+}
+
+
+def list_events(month):
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE month=? ORDER BY day, id", (month,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_event(month, day, title, color="red", span_days=1, note=""):
+    title = _safe_str(title).strip()
+    if not title:
+        return
+    try:
+        day = int(day)
+    except (TypeError, ValueError):
+        day = 1
+    try:
+        span_days = max(1, int(span_days))
+    except (TypeError, ValueError):
+        span_days = 1
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO events (month, day, span_days, title, color, note, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (
+                month, day, span_days, title,
+                _safe_str(color) or "red",
+                _safe_str(note).strip(),
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+
+
+def delete_event(event_id):
+    with _conn() as conn:
+        conn.execute("DELETE FROM events WHERE id=?", (event_id,))
+
+
+# --- dashboard state -------------------------------------------------------
 
 
 def get_state(key, default=None):

@@ -52,6 +52,19 @@ _CSS = """
     box-sizing: border-box;
 }
 .card.source { opacity: 0.35; }
+.events { display: flex; flex-direction: column; gap: 2px; margin-bottom: 3px; }
+.event-band {
+    font-size: 11px;
+    color: #fff;
+    padding: 2px 6px;
+    border-radius: 3px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
 """
 
 _JS = """
@@ -61,12 +74,21 @@ export default function(component) {
     host.innerHTML = '';
 
     const COLORS = data.colors || {};
+    const EVENT_COLORS = data.event_colors || {};
     const ndays = data.ndays;
     const firstWd = data.first_weekday;
 
     const byDay = {};
-    for (let d = 1; d <= ndays; d++) byDay[d] = [];
+    const eventsByDay = {};
+    for (let d = 1; d <= ndays; d++) { byDay[d] = []; eventsByDay[d] = []; }
     (data.cards || []).forEach(c => { if (byDay[c.day]) byDay[c.day].push(c); });
+    (data.events || []).forEach(ev => {
+        const span = Math.max(1, ev.span_days || 1);
+        for (let k = 0; k < span; k++) {
+            const d = ev.day + k;
+            if (eventsByDay[d]) eventsByDay[d].push(ev);
+        }
+    });
 
     const header = document.createElement('div');
     header.className = 'grid head';
@@ -96,6 +118,17 @@ export default function(component) {
             num.className = 'daynum';
             num.textContent = String(day);
             cell.appendChild(num);
+            const evCont = document.createElement('div');
+            evCont.className = 'events';
+            eventsByDay[day].forEach(ev => {
+                const b = document.createElement('div');
+                b.className = 'event-band';
+                b.style.background = EVENT_COLORS[ev.color] || '#c0392b';
+                b.title = ev.title + (ev.note ? ' / ' + ev.note : '');
+                b.textContent = ev.title;
+                evCont.appendChild(b);
+            });
+            cell.appendChild(evCont);
             const cont = document.createElement('div');
             cont.className = 'cards';
             cell.appendChild(cont);
