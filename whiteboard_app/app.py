@@ -1,0 +1,262 @@
+"""Factory whiteboard prototype.
+
+A digital version of the factory monthly-schedule whiteboard:
+- Edit mode  : drag magnet-style cards between days (for the touchscreen board).
+- View mode  : read-only calendar, auto-refreshing (for phones / iPads).
+Both modes share one SQLite file, so edits propagate between devices.
+"""
+
+import calendar
+import io
+import json
+
+import streamlit as st
+
+import db
+from calendar_component import register_calendar_board
+
+WEEKDAY_JA = ["月", "火", "水", "木", "金", "土", "日"]
+COLOR_LABELS = {"yellow": "黄", "blue": "青", "orange": "橙", "white": "白"}
+
+st.set_page_config(page_title="工場ホワイトボード", layout="wide")
+db.init_db()
+
+if "rev" not in st.session_state:
+    st.session_state.rev = 0
+
+
+def card_text(card):
+    parts = [card["destination"], card["truck"], card["person"], card["time"]]
+    return " ".join(p for p in parts if p)
+
+
+def card_label(card):
+    """Unique, human-readable label used by the drag widget and edit picker."""
+    return f"[{COLOR_LABELS.get(card['color'], '?')}] {card_text(card) or '(空札)'} ⟨{card['id']}⟩"
+
+
+def render_memo_edit(month_key):
+    """Handwriting memo area backed by st_canvas (this repo's component)."""
+    try:
+        from streamlit_drawable_canvas import st_canvas
+    except ImportError:
+        st.error("streamlit-drawable-canvas が未インストールです: pip install -r requirements.txt")
+        return
+
+    st.subheader("手書きメモ")
+    c1, c2, c3 = st.columns(3)
+    stroke_width = c1.slider("線の太さ", 1, 20, 4)
+    stroke_color = c2.color_picker("色", "#000000")
+    tool = c3.selectbox(
+        "ツール",
+        ["freedraw", "line", "transform"],
+        format_func=lambda m: {"freedraw": "ペン", "line": "直線", "transform": "移動"}[m],
+    )
+
+    memo = db.get_memo(month_key)
+    initial = json.loads(memo["json_data"]) if memo and memo["json_data"] else None
+
+    result = st_canvas(
+        fill_color="rgba(0,0,0,0)",
+        stroke_width=stroke_width,
+        stroke_color=stroke_color,
+        background_color="#ffffff",
+        update_streamlit=True,
+        height=300,
+        width=1000,
+        drawing_mode=tool,
+        initial_drawing=initial,
+        display_toolbar=True,
+        key=f"memo_{month_key}",
+    )
+
+    if result is None or result.json_data is None:
+        return
+    new_json = json.dumps(result.json_data, sort_keys=True)
+    if memo and new_json == memo["json_data"]:
+        return  # no change -> avoid a redundant write
+
+    image_bytes = None
+    if result.image_data is not None:
+        from PIL import Image
+
+        drawn = Image.fromarray(result.image_data.astype("uint8"), "RGBA")
+        flat = Image.new("RGB", drawn.size, "white")
+        flat.paste(drawn, mask=drawn.split()[3])
+        buf = io.BytesIO()
+        flat.save(buf, format="PNG")
+        image_bytes = buf.getvalue()
+    db.save_memo(month_key, new_json, image_bytes)
+
+
+def render_memo_view(month_key):
+    st.subheader("手書きメモ")
+    memo = db.get_memo(month_key)
+    if memo and memo["image"]:
+        st.image(memo["image"])
+    else:
+        st.caption("メモはまだありません。")
+
+
+def render_view(year, mon, month_key):
+    cards = db.get_cards(month_key)
+    by_day = {}
+    for card in cards:
+        by_day.setdefault(card["day"], []).append(card)
+
+    ndays = calendar.monthrange(year, mon)[1]
+    first_wd = calendar.weekday(year, mon, 1)  # 0 = Monday
+
+    header = st.columns(7)
+    for i, col in enumerate(header):
+        col.markdown(f"**{WEEKDAY_JA[i]}**")
+
+    cells = [None] * first_wd + list(range(1, ndays + 1))
+    while len(cells) % 7:
+        cells.append(None)
+
+    for week_start in range(0, len(cells), 7):
+        cols = st.columns(7)
+        for i, day in enumerate(cells[week_start : week_start + 7]):
+            with cols[i]:
+                if day is None:
+                    continue
+                wd = (first_wd + day - 1) % 7
+                day_color = "#c0392b" if wd >= 5 else "inherit"
+                st.markdown(
+                    f"<div style='font-weight:bold;color:{day_color}'>{day}</div>",
+                    unsafe_allow_html=True,
+                )
+                for card in by_day.get(day, []):
+                    bg = db.COLORS.get(card["color"], "#eeeeee")
+                    st.markdown(
+                        f"<div style='background:{bg};border:1px solid #999;"
+                        f"border-radius:4px;padding:2px 6px;margin:3px 0;"
+                        f"font-size:12px'>{card_text(card) or '&nbsp;'}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+    st.divider()
+    render_memo_view(month_key)
+
+
+def render_board_edit(year, mon, month_key):
+    """Calendar-grid drag board (st.components.v2)."""
+    cards = db.get_cards(month_key)
+    data = {
+        "year": year,
+        "month": mon,
+        "ndays": calendar.monthrange(year, mon)[1],
+        "first_weekday": calendar.weekday(year, mon, 1),
+        "weekday_names": WEEKDAY_JA,
+        "colors": db.COLORS,
+        "cards": [
+            {
+                "id": c["id"],
+                "day": c["day"],
+                "text": card_text(c) or "(空札)",
+                "color": c["color"],
+            }
+            for c in cards
+        ],
+    }
+
+    st.caption("札をドラッグして日付の間を移動できます(マウス・タッチ対応)。")
+    calendar_board = register_calendar_board()
+    result = calendar_board(
+        key=f"board_{month_key}_{st.session_state.rev}",
+        data=data,
+        height="content",
+        on_layout_change=lambda: None,
+    )
+
+    layout = result.get("layout") if result is not None else None
+    if layout:
+        current = {c["id"]: (c["day"], c["sort_order"]) for c in cards}
+        changed = [
+            (int(it["id"]), int(it["day"]), int(it["order"]))
+            for it in layout
+            if current.get(int(it["id"])) != (int(it["day"]), int(it["order"]))
+        ]
+        if changed:
+            db.set_positions(changed)
+
+
+def render_edit(year, mon, month_key):
+    render_board_edit(year, mon, month_key)
+
+    cards = db.get_cards(month_key)
+    with st.expander("札を編集・削除"):
+        if not cards:
+            st.info("札がありません。サイドバーの「札を追加」から登録してください。")
+        else:
+            options = {card_label(c): c for c in cards}
+            selected = options[st.selectbox("対象の札", list(options))]
+            with st.form(f"edit_{selected['id']}"):
+                e_dest = st.text_input("行先", selected["destination"])
+                e_truck = st.text_input("車番", selected["truck"])
+                e_person = st.text_input("氏名", selected["person"])
+                e_time = st.text_input("出庫時間", selected["time"])
+                color_keys = list(COLOR_LABELS)
+                e_color = st.selectbox(
+                    "色",
+                    color_keys,
+                    index=color_keys.index(selected["color"])
+                    if selected["color"] in color_keys
+                    else 0,
+                    format_func=lambda k: COLOR_LABELS[k],
+                )
+                col_update, col_delete = st.columns(2)
+                if col_update.form_submit_button("更新", use_container_width=True):
+                    db.update_card(
+                        selected["id"],
+                        destination=e_dest,
+                        truck=e_truck,
+                        person=e_person,
+                        time=e_time,
+                        color=e_color,
+                    )
+                    st.session_state.rev += 1
+                    st.rerun()
+                if col_delete.form_submit_button("削除", use_container_width=True):
+                    db.delete_card(selected["id"])
+                    st.session_state.rev += 1
+                    st.rerun()
+
+    st.divider()
+    render_memo_edit(month_key)
+
+
+# --- Sidebar -----------------------------------------------------------------
+st.sidebar.title("工場ホワイトボード")
+mode = st.sidebar.radio("モード", ["閲覧", "編集"], horizontal=True)
+year = st.sidebar.selectbox("年", list(range(2024, 2031)), index=2)
+mon = st.sidebar.selectbox("月", list(range(1, 13)), index=4)
+month_key = f"{year:04d}-{mon:02d}"
+ndays = calendar.monthrange(year, mon)[1]
+
+if mode == "編集":
+    with st.sidebar.form("add_card", clear_on_submit=True):
+        st.subheader("札を追加")
+        a_dest = st.text_input("行先")
+        a_truck = st.text_input("車番")
+        a_person = st.text_input("氏名")
+        a_time = st.text_input("出庫時間")
+        a_color = st.selectbox(
+            "色", list(COLOR_LABELS), format_func=lambda k: COLOR_LABELS[k]
+        )
+        a_day = st.selectbox("日", list(range(1, ndays + 1)))
+        if st.form_submit_button("追加", use_container_width=True):
+            db.add_card(month_key, a_day, a_dest, a_truck, a_person, a_time, a_color)
+            st.session_state.rev += 1
+            st.rerun()
+
+# --- Main --------------------------------------------------------------------
+st.header(f"第3工場 月予定表 — {year}年{mon}月")
+
+if mode == "閲覧":
+    st.caption("閲覧モード:3秒ごとに自動更新されます。")
+    auto_view = st.fragment(run_every="3s")(render_view)
+    auto_view(year, mon, month_key)
+else:
+    render_edit(year, mon, month_key)
