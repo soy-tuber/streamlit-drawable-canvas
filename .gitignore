@@ -62,3 +62,13 @@ coverage/
 # VSCode
 ########################################################################
 .vscode/
+
+########################################################################
+# Whiteboard prototype: reference materials, local venv, local DB
+########################################################################
+.venv/
+whiteboard_app/whiteboard.db
+whiteboard_app/whiteboard.db-wal
+whiteboard_app/whiteboard.db-shm
+*.pptx
+*:Zone.Identifier

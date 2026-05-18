@@ -1,141 +1,262 @@
-"""Factory whiteboard prototype.
+"""Factory whiteboard prototype — single-page showcase dashboard.
 
-A digital version of the factory monthly-schedule whiteboard:
-- 月予定タブ     : drag magnet-style cards between days (for the touchscreen).
-- 手書きノートタブ: multi-page pressure-sensitive whiteboard with PDF/image
-                   backgrounds and PNG/PDF export.
-View mode is read-only and auto-refreshes for phones / tablets. Edit mode is
-for the large touch panel. Both share one SQLite file so changes propagate
-between devices.
+Reproduces the real magnetic whiteboard in one densely-packed Streamlit page:
+  - Real-time analog/digital clock, date, weather, KPI header
+  - Monthly schedule calendar with magnet-style drag-and-drop cards
+  - Today / Tomorrow daily delivery plans as editable tables
+  - Tag stock chips (行先 / 車番 / 氏名 / 協力会社) backed by master tables
+  - Partner-company breakdown, holiday board, monthly attendance heatmap
+  - Multi-page handwriting note (pressure-aware) with PDF/image backgrounds
+  - Announcements feed, safety rules, share URL + QR
 """
 
 import base64
 import calendar
 import io
-import json
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
+import pandas as pd
+import qrcode
 import streamlit as st
 
 import db
 import export as exporter
 import pdf_utils
 from calendar_component import register_calendar_board
+from clock_component import register_clock
 from whiteboard_canvas import register_whiteboard_canvas
 
 WEEKDAY_JA = ["月", "火", "水", "木", "金", "土", "日"]
 COLOR_LABELS = {"yellow": "黄", "blue": "青", "orange": "橙", "white": "白"}
+WEATHER_OPTIONS = ["☀ 晴れ", "⛅ 晴時々曇", "☁ 曇り", "🌧 雨", "⛈ 雷雨",
+                   "❄ 雪", "🌫 霧"]
+SAFETY_RULES = [
+    "作業前にKY (危険予知) を実施",
+    "ヘルメット・安全靴の着用必須",
+    "フォークリフト周辺は立入禁止 — 声掛けで合図",
+    "異常を発見したら即時通報、勝手な復旧は禁止",
+    "6S (整理・整頓・清掃・清潔・躾・作法) を徹底",
+]
 CANVAS_W = 1280
-CANVAS_H = 800
-THUMB_W = 160
+CANVAS_H = 720
 
-st.set_page_config(page_title="工場ホワイトボード", layout="wide")
+st.set_page_config(
+    page_title="工場ホワイトボード Showcase",
+    layout="wide",
+    page_icon="🏭",
+)
 db.init_db()
 
-# ---- session state ---------------------------------------------------------
-if "rev" not in st.session_state:
-    st.session_state.rev = 0
-if "note_page_no" not in st.session_state:
-    st.session_state.note_page_no = 1
-if "active_tab" not in st.session_state:
-    st.session_state.active_tab = "calendar"
+ss = st.session_state
+ss.setdefault("rev", 0)
+ss.setdefault("note_page_no", 1)
 
-# ---- URL params (deep-link share) ------------------------------------------
-qp = st.query_params
-if "tab" in qp and qp["tab"] in ("calendar", "note"):
-    st.session_state.active_tab = qp["tab"]
-if "page" in qp:
-    try:
-        st.session_state.note_page_no = max(1, int(qp["page"]))
-    except ValueError:
-        pass
+# ---------------------------------------------------------------------------
+# Sidebar
+# ---------------------------------------------------------------------------
+
+st.sidebar.title("🏭 ホワイトボード")
+mode = st.sidebar.radio(
+    "モード", ["閲覧", "編集"], horizontal=True, key="mode_radio"
+)
+factory_name = st.sidebar.text_input(
+    "工場名", value=db.get_state("factory_name", "第3工場")
+)
+if factory_name != db.get_state("factory_name", "第3工場"):
+    db.set_state("factory_name", factory_name)
+
+today = date.today()
+base_date = st.sidebar.date_input("基準日(=当日)", value=today)
+tomorrow = base_date + timedelta(days=1)
+year, mon = base_date.year, base_date.month
+month_key = f"{year:04d}-{mon:02d}"
+ndays = calendar.monthrange(year, mon)[1]
+
+weather = st.sidebar.selectbox(
+    "天気",
+    WEATHER_OPTIONS,
+    index=WEATHER_OPTIONS.index(db.get_state("weather", WEATHER_OPTIONS[0]))
+    if db.get_state("weather", WEATHER_OPTIONS[0]) in WEATHER_OPTIONS
+    else 0,
+)
+if weather != db.get_state("weather"):
+    db.set_state("weather", weather)
+temp = st.sidebar.text_input("気温(°C)", db.get_state("temperature", "22"))
+if temp != db.get_state("temperature"):
+    db.set_state("temperature", temp)
+
+with st.sidebar.expander("📦 マスタ管理", expanded=False):
+    st.caption("行先・車番・氏名・協力会社のタグを編集できます。")
+    for kind, label in [
+        ("destination", "行先"),
+        ("truck", "車番"),
+        ("person", "氏名"),
+        ("partner", "協力会社"),
+    ]:
+        st.markdown(f"**{label}**")
+        rows = [{"label": t["label"], "color": t["color"]} for t in db.list_tags(kind)]
+        edited = st.data_editor(
+            rows,
+            num_rows="dynamic",
+            key=f"master_{kind}",
+            column_config={
+                "label": st.column_config.TextColumn(label, required=True),
+                "color": st.column_config.SelectboxColumn(
+                    "色", options=list(db.COLORS.keys())
+                ),
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+        if st.button(f"{label}を保存", key=f"save_master_{kind}",
+                     use_container_width=True):
+            db.replace_tags(kind, edited)
+            ss.rev += 1
+            st.rerun()
+
+with st.sidebar.expander("🛌 公休者管理", expanded=False):
+    holiday_rows = db.list_holidays(month_key)
+    h_df = [
+        {"day": r["day"], "person": r["person"], "shift": r["shift"],
+         "note": r["note"]}
+        for r in holiday_rows
+    ]
+    h_edit = st.data_editor(
+        h_df,
+        num_rows="dynamic",
+        key="holiday_editor",
+        column_config={
+            "day": st.column_config.NumberColumn("日", min_value=1, max_value=31),
+            "person": st.column_config.SelectboxColumn(
+                "氏名", options=db.tag_labels("person"),
+            ),
+            "shift": st.column_config.SelectboxColumn(
+                "区分", options=["day", "night"]
+            ),
+            "note": st.column_config.TextColumn("備考"),
+        },
+        use_container_width=True, hide_index=True,
+    )
+    if st.button("公休を保存", use_container_width=True, key="save_holidays"):
+        db.replace_holidays(month_key, h_edit)
+        ss.rev += 1
+        st.rerun()
+
+with st.sidebar.expander("📣 お知らせ投稿", expanded=False):
+    with st.form("ann_form", clear_on_submit=True):
+        new_ann = st.text_area("お知らせ本文", "")
+        ac1, ac2 = st.columns(2)
+        ann_level = ac1.selectbox("種別", ["info", "warn", "alert"])
+        ann_pin = ac2.checkbox("ピン留め")
+        if st.form_submit_button("投稿", use_container_width=True):
+            db.add_announcement(new_ann, ann_level, ann_pin)
+            ss.rev += 1
+            st.rerun()
+
+# ---------------------------------------------------------------------------
+# Header (title + clock + weather + KPI)
+# ---------------------------------------------------------------------------
+
+st.markdown(
+    f"<h1 style='margin-bottom:0'>{factory_name} 電子ホワイトボード</h1>"
+    f"<div style='color:#666;margin-bottom:8px'>"
+    f"基準日: {base_date.strftime('%Y-%m-%d (')}{WEEKDAY_JA[base_date.weekday()]}"
+    f")  /  モード: <b>{mode}</b></div>",
+    unsafe_allow_html=True,
+)
+
+hcol1, hcol2 = st.columns([2, 1])
+with hcol1:
+    register_clock()(key=f"clock_{ss.rev}", data={}, height=110)
+with hcol2:
+    st.markdown(
+        f"<div style='border:1px solid #ddd;border-radius:8px;padding:10px 14px;"
+        f"background:#fafcff;text-align:center'>"
+        f"<div style='font-size:42px;line-height:1'>{weather.split()[0]}</div>"
+        f"<div style='font-size:14px;color:#555'>{' '.join(weather.split()[1:])} / {temp}°C</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
-def card_text(card):
-    parts = [card["destination"], card["truck"], card["person"], card["time"]]
+def _kpi_card(label, value, sub=""):
+    return (
+        "<div style='border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;"
+        "background:#fff'>"
+        f"<div style='font-size:12px;color:#666'>{label}</div>"
+        f"<div style='font-size:24px;font-weight:bold'>{value}</div>"
+        f"<div style='font-size:11px;color:#888'>{sub}</div>"
+        "</div>"
+    )
+
+
+cards_today = db.get_cards_by_day(month_key, base_date.day)
+cards_tomorrow = db.get_cards_by_day(month_key, tomorrow.day) if tomorrow.month == mon else []
+all_cards_month = db.get_cards(month_key)
+unique_drivers_today = len({c["person"] for c in cards_today if c["person"]})
+unique_trucks_today = len({c["truck"] for c in cards_today if c["truck"]})
+partners_today = len({c["partner"] for c in cards_today if c["partner"]})
+holidays_today = [h for h in db.list_holidays(month_key) if h["day"] == base_date.day]
+announcements = db.list_announcements(limit=10)
+
+kpi_cols = st.columns(6)
+kpis = [
+    _kpi_card("当日 便数", len(cards_today), f"翌日 {len(cards_tomorrow)} 便"),
+    _kpi_card("稼働ドライバ", unique_drivers_today,
+              f"マスタ {len(db.tag_labels('person'))} 名"),
+    _kpi_card("稼働車両", unique_trucks_today,
+              f"マスタ {len(db.tag_labels('truck'))} 台"),
+    _kpi_card("協力会社", partners_today,
+              " / ".join(db.tag_labels('partner')[:3]) or "—"),
+    _kpi_card("公休 (本日)", len(holidays_today),
+              f"月計 {len(db.list_holidays(month_key))} 名"),
+    _kpi_card("お知らせ", len(announcements),
+              "ピン留め " + str(sum(1 for a in announcements if a['pinned']))),
+]
+for col, html in zip(kpi_cols, kpis):
+    col.markdown(html, unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ---------------------------------------------------------------------------
+# Main board row: 月予定 + 当日 + 翌日
+# ---------------------------------------------------------------------------
+
+st.subheader("📅 メインボード")
+main_l, main_c, main_r = st.columns([5, 3, 3])
+
+
+def card_text(c):
+    parts = [c.get("destination"), c.get("truck"), c.get("person"), c.get("time")]
     return " ".join(p for p in parts if p)
 
 
-def card_label(card):
-    return f"[{COLOR_LABELS.get(card['color'], '?')}] {card_text(card) or '(空札)'} ⟨{card['id']}⟩"
-
-
-# ===========================================================================
-# 月予定タブ  (calendar + cards)
-# ===========================================================================
-
-
-def render_calendar_view(year, mon, month_key):
-    cards = db.get_cards(month_key)
-    by_day = {}
-    for card in cards:
-        by_day.setdefault(card["day"], []).append(card)
-
-    ndays = calendar.monthrange(year, mon)[1]
-    first_wd = calendar.weekday(year, mon, 1)
-
-    header = st.columns(7)
-    for i, col in enumerate(header):
-        col.markdown(f"**{WEEKDAY_JA[i]}**")
-
-    cells = [None] * first_wd + list(range(1, ndays + 1))
-    while len(cells) % 7:
-        cells.append(None)
-
-    for week_start in range(0, len(cells), 7):
-        cols = st.columns(7)
-        for i, day in enumerate(cells[week_start : week_start + 7]):
-            with cols[i]:
-                if day is None:
-                    continue
-                wd = (first_wd + day - 1) % 7
-                day_color = "#c0392b" if wd >= 5 else "inherit"
-                st.markdown(
-                    f"<div style='font-weight:bold;color:{day_color}'>{day}</div>",
-                    unsafe_allow_html=True,
-                )
-                for card in by_day.get(day, []):
-                    bg = db.COLORS.get(card["color"], "#eeeeee")
-                    st.markdown(
-                        f"<div style='background:{bg};border:1px solid #999;"
-                        f"border-radius:4px;padding:2px 6px;margin:3px 0;"
-                        f"font-size:12px'>{card_text(card) or '&nbsp;'}</div>",
-                        unsafe_allow_html=True,
-                    )
-
-
-def render_calendar_edit(year, mon, month_key):
-    cards = db.get_cards(month_key)
-    data = {
-        "year": year,
-        "month": mon,
-        "ndays": calendar.monthrange(year, mon)[1],
+# ---- 月間予定 ----
+with main_l:
+    st.markdown("##### 月間予定表")
+    cb_data = {
+        "year": year, "month": mon,
+        "ndays": ndays,
         "first_weekday": calendar.weekday(year, mon, 1),
         "weekday_names": WEEKDAY_JA,
         "colors": db.COLORS,
         "cards": [
-            {
-                "id": c["id"],
-                "day": c["day"],
-                "text": card_text(c) or "(空札)",
-                "color": c["color"],
-            }
-            for c in cards
+            {"id": c["id"], "day": c["day"],
+             "text": card_text(c) or "(空札)",
+             "color": c["color"]}
+            for c in all_cards_month
         ],
     }
-
-    st.caption("札をドラッグして日付の間を移動できます(マウス・タッチ対応)。")
-    calendar_board = register_calendar_board()
-    result = calendar_board(
-        key=f"board_{month_key}_{st.session_state.rev}",
-        data=data,
+    cb = register_calendar_board()
+    layout_result = cb(
+        key=f"cal_{month_key}_{ss.rev}",
+        data=cb_data,
         height="content",
         on_layout_change=lambda: None,
     )
-
-    layout = result.get("layout") if result is not None else None
-    if layout:
-        current = {c["id"]: (c["day"], c["sort_order"]) for c in cards}
+    layout = layout_result.get("layout") if layout_result else None
+    if layout and mode == "編集":
+        current = {c["id"]: (c["day"], c["sort_order"]) for c in all_cards_month}
         changed = [
             (int(it["id"]), int(it["day"]), int(it["order"]))
             for it in layout
@@ -144,119 +265,336 @@ def render_calendar_edit(year, mon, month_key):
         if changed:
             db.set_positions(changed)
 
-    with st.expander("札を編集・削除"):
-        if not cards:
-            st.info("札がありません。サイドバーの「札を追加」から登録してください。")
-        else:
-            options = {card_label(c): c for c in cards}
-            selected = options[st.selectbox("対象の札", list(options))]
-            with st.form(f"edit_{selected['id']}"):
-                e_dest = st.text_input("行先", selected["destination"])
-                e_truck = st.text_input("車番", selected["truck"])
-                e_person = st.text_input("氏名", selected["person"])
-                e_time = st.text_input("出庫時間", selected["time"])
-                color_keys = list(COLOR_LABELS)
-                e_color = st.selectbox(
-                    "色",
-                    color_keys,
-                    index=color_keys.index(selected["color"])
-                    if selected["color"] in color_keys
-                    else 0,
-                    format_func=lambda k: COLOR_LABELS[k],
-                )
-                col_update, col_delete = st.columns(2)
-                if col_update.form_submit_button("更新", use_container_width=True):
-                    db.update_card(
-                        selected["id"],
-                        destination=e_dest,
-                        truck=e_truck,
-                        person=e_person,
-                        time=e_time,
-                        color=e_color,
-                    )
-                    st.session_state.rev += 1
-                    st.rerun()
-                if col_delete.form_submit_button("削除", use_container_width=True):
-                    db.delete_card(selected["id"])
-                    st.session_state.rev += 1
-                    st.rerun()
+# ---- 当日 / 翌日 ----
 
 
-# ===========================================================================
-# 手書きノートタブ (multi-page whiteboard)
-# ===========================================================================
-
-
-def _clamp_page_no(board_key, requested):
-    total = db.count_pages(board_key)
-    if total == 0:
-        db.ensure_page(board_key, 1)
-        return 1
-    return max(1, min(int(requested), total))
-
-
-def _bg_for_component(page):
-    if not page or not page.get("bg_data") or page.get("bg_type") == "blank":
-        return None
-    return base64.b64encode(page["bg_data"]).decode("ascii")
-
-
-def render_note_view(board_key):
-    pages_meta = db.list_pages(board_key)
-    if not pages_meta:
-        st.info("このボードにはまだページがありません。")
-        return
-
-    page_no = _clamp_page_no(board_key, st.session_state.note_page_no)
-    st.session_state.note_page_no = page_no
-    total = len(pages_meta)
-    page = db.get_page(board_key, page_no)
-
-    nav_l, nav_c, nav_r = st.columns([1, 2, 1])
-    if nav_l.button("◀ 前", use_container_width=True, disabled=(page_no <= 1)):
-        st.session_state.note_page_no = page_no - 1
-        st.rerun()
-    nav_c.markdown(
-        f"<div style='text-align:center;font-weight:bold;font-size:20px;padding-top:6px'>"
-        f"ページ {page_no} / {total}</div>",
-        unsafe_allow_html=True,
+def render_day_editor(label, day_int, key_suffix):
+    rows = db.get_cards_by_day(month_key, day_int)
+    df = pd.DataFrame(
+        [
+            {
+                "destination": r["destination"],
+                "truck": r["truck"],
+                "person": r["person"],
+                "time": r["time"],
+                "partner": r.get("partner") or "自社",
+                "color": r["color"],
+            }
+            for r in rows
+        ],
+        columns=["destination", "truck", "person", "time", "partner", "color"],
     )
-    if nav_r.button("次 ▶", use_container_width=True, disabled=(page_no >= total)):
-        st.session_state.note_page_no = page_no + 1
+    st.markdown(f"##### {label}")
+    st.caption(f"{day_int}日 / {len(rows)} 便")
+    edited = st.data_editor(
+        df,
+        num_rows="dynamic" if mode == "編集" else "fixed",
+        disabled=(mode != "編集"),
+        key=f"daily_{key_suffix}_{ss.rev}",
+        column_config={
+            "destination": st.column_config.SelectboxColumn(
+                "行先", options=db.tag_labels("destination")
+            ),
+            "truck": st.column_config.SelectboxColumn(
+                "車番", options=db.tag_labels("truck")
+            ),
+            "person": st.column_config.SelectboxColumn(
+                "氏名", options=db.tag_labels("person")
+            ),
+            "time": st.column_config.TextColumn("出庫"),
+            "partner": st.column_config.SelectboxColumn(
+                "協力", options=db.tag_labels("partner")
+            ),
+            "color": st.column_config.SelectboxColumn(
+                "色", options=list(db.COLORS.keys())
+            ),
+        },
+        use_container_width=True,
+        hide_index=True,
+    )
+    if mode == "編集" and st.button(
+        f"💾 {label} 保存", key=f"save_{key_suffix}",
+        use_container_width=True,
+    ):
+        db.replace_cards_for_day(month_key, day_int, edited.to_dict(orient="records"))
+        ss.rev += 1
         st.rerun()
 
-    if page and page.get("image_png"):
-        st.image(page["image_png"], use_container_width=True)
-    elif page and page.get("bg_data"):
-        st.image(page["bg_data"], use_container_width=True)
+
+with main_c:
+    render_day_editor(f"当日 {base_date.month}/{base_date.day} "
+                      f"({WEEKDAY_JA[base_date.weekday()]})",
+                      base_date.day, "today")
+
+with main_r:
+    if tomorrow.month == mon:
+        render_day_editor(f"翌日 {tomorrow.month}/{tomorrow.day} "
+                          f"({WEEKDAY_JA[tomorrow.weekday()]})",
+                          tomorrow.day, "tomorrow")
     else:
-        st.caption("(空白ページ)")
+        st.markdown(f"##### 翌日 {tomorrow.month}/{tomorrow.day} (翌月)")
+        st.caption("翌月のため当画面では編集対象外です。月選択で翌月へ移動してください。")
+
+st.markdown("---")
+
+# ---------------------------------------------------------------------------
+# タグストック
+# ---------------------------------------------------------------------------
+
+st.subheader("🏷 タグストック")
 
 
-def render_note_edit(board_key):
-    page_no = _clamp_page_no(board_key, st.session_state.note_page_no)
-    st.session_state.note_page_no = page_no
-    page = db.ensure_page(board_key, page_no)
-    total = db.count_pages(board_key)
-
-    nav_l, nav_mid, nav_r = st.columns([1, 2, 1])
-    if nav_l.button("◀ 前", use_container_width=True, disabled=(page_no <= 1), key="np_prev"):
-        st.session_state.note_page_no = page_no - 1
-        st.rerun()
-    nav_mid.markdown(
-        f"<div style='text-align:center;font-weight:bold;font-size:18px;padding-top:6px'>"
-        f"ページ {page_no} / {total}</div>",
-        unsafe_allow_html=True,
+def _chips(tags):
+    if not tags:
+        return "<span style='color:#999'>(なし)</span>"
+    return "".join(
+        f"<span style='display:inline-block;background:{db.COLORS.get(t['color'], '#eee')};"
+        f"border:1px solid #888;border-radius:14px;padding:3px 10px;margin:3px;"
+        f"font-size:13px;font-weight:500'>{t['label']}</span>"
+        for t in tags
     )
-    if nav_r.button("次 ▶", use_container_width=True, disabled=(page_no >= total), key="np_next"):
-        st.session_state.note_page_no = page_no + 1
-        st.rerun()
 
-    bg_b64 = _bg_for_component(page)
 
+tc1, tc2, tc3, tc4 = st.columns(4)
+tc1.markdown("**行先**", unsafe_allow_html=True)
+tc1.markdown(_chips(db.list_tags("destination")), unsafe_allow_html=True)
+tc2.markdown("**車番**", unsafe_allow_html=True)
+tc2.markdown(_chips(db.list_tags("truck")), unsafe_allow_html=True)
+tc3.markdown("**氏名**", unsafe_allow_html=True)
+tc3.markdown(_chips(db.list_tags("person")), unsafe_allow_html=True)
+tc4.markdown("**協力会社**", unsafe_allow_html=True)
+tc4.markdown(_chips(db.list_tags("partner")), unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ---------------------------------------------------------------------------
+# 協力会社別 + 公休 + 出勤表
+# ---------------------------------------------------------------------------
+
+pa_col, hd_col, at_col = st.columns([3, 2, 4])
+
+with pa_col:
+    st.subheader("🤝 協力会社別 (当日)")
+    by_partner = {}
+    for c in cards_today:
+        by_partner.setdefault(c.get("partner") or "自社", []).append(c)
+    if not by_partner:
+        st.caption("本日の便はまだ登録されていません。")
+    for partner in db.tag_labels("partner"):
+        items = by_partner.get(partner, [])
+        st.markdown(
+            f"**{partner}** "
+            f"<span style='color:#666;font-size:12px'>{len(items)} 便</span>",
+            unsafe_allow_html=True,
+        )
+        if not items:
+            st.markdown(
+                "<div style='color:#999;font-size:12px;margin-bottom:6px'>—</div>",
+                unsafe_allow_html=True,
+            )
+            continue
+        body = "".join(
+            f"<div style='background:{db.COLORS.get(c['color'], '#eee')};"
+            f"border:1px solid #aaa;border-radius:4px;padding:4px 8px;margin:2px 0;"
+            f"font-size:12px'>"
+            f"{c.get('time','') and (c['time']+' ')}"
+            f"{c.get('destination','')} / {c.get('truck','')} / {c.get('person','')}"
+            f"</div>"
+            for c in items
+        )
+        st.markdown(body, unsafe_allow_html=True)
+
+with hd_col:
+    st.subheader("🛌 公休者ボード")
+    hol = db.list_holidays(month_key)
+    if not hol:
+        st.caption("今月の公休登録はありません。")
+    day_shift = [h for h in hol if h["shift"] == "day"]
+    night_shift = [h for h in hol if h["shift"] == "night"]
+    st.markdown(f"**日勤公休** ({len(day_shift)}名)")
+    for h in day_shift:
+        st.markdown(
+            f"<div style='border-left:4px solid #2196f3;padding:3px 8px;margin:2px 0;"
+            f"background:#f0f8ff'>"
+            f"{h['day']}日 {h['person']}"
+            f"{(' / ' + h['note']) if h['note'] else ''}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    st.markdown(f"**夜勤公休** ({len(night_shift)}名)")
+    for h in night_shift:
+        st.markdown(
+            f"<div style='border-left:4px solid #7e57c2;padding:3px 8px;margin:2px 0;"
+            f"background:#f6f3fa'>"
+            f"{h['day']}日 {h['person']}"
+            f"{(' / ' + h['note']) if h['note'] else ''}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+with at_col:
+    st.subheader("🗓 出勤表 (月間ヒートマップ)")
+    persons = db.tag_labels("person")
+    hol_set = {(h["day"], h["person"]) for h in db.list_holidays(month_key)}
+    work_set = set()
+    for c in all_cards_month:
+        if c.get("person"):
+            work_set.add((c["day"], c["person"]))
+    if not persons:
+        st.caption("マスタに氏名がありません。サイドバーから登録してください。")
+    else:
+        header_row = "<tr><th style='background:#f4f4f4'></th>" + "".join(
+            f"<th style='background:#f4f4f4;font-size:11px'>{d}</th>"
+            for d in range(1, ndays + 1)
+        ) + "</tr>"
+        body = ""
+        for p in persons:
+            cells = ""
+            for d in range(1, ndays + 1):
+                cls = ""
+                txt = ""
+                if (d, p) in hol_set:
+                    cls = "background:#ffe0e0"
+                    txt = "休"
+                elif (d, p) in work_set:
+                    cls = "background:#c8e6c9"
+                    txt = "○"
+                else:
+                    cls = "background:#fff"
+                cells += (
+                    f"<td style='border:1px solid #ddd;width:18px;height:20px;"
+                    f"text-align:center;font-size:10px;{cls}'>{txt}</td>"
+                )
+            body += (
+                f"<tr><th style='font-size:11px;text-align:left;padding-right:4px;"
+                f"white-space:nowrap'>{p}</th>{cells}</tr>"
+            )
+        st.markdown(
+            f"<div style='overflow-x:auto'>"
+            f"<table style='border-collapse:collapse'>{header_row}{body}</table>"
+            f"</div>"
+            f"<div style='font-size:11px;color:#666;margin-top:4px'>"
+            f"○=便あり / 休=公休 / 空=未登録</div>",
+            unsafe_allow_html=True,
+        )
+
+st.markdown("---")
+
+# ---------------------------------------------------------------------------
+# 手書きノート
+# ---------------------------------------------------------------------------
+
+st.subheader("✏ 手書きノート")
+note_board_key = f"note_{month_key}"
+
+
+def _clamp(no):
+    total = db.count_pages(note_board_key)
+    if total == 0:
+        db.ensure_page(note_board_key, 1)
+        return 1
+    return max(1, min(no, total))
+
+
+page_no = _clamp(ss.note_page_no)
+ss.note_page_no = page_no
+total_pages = db.count_pages(note_board_key)
+page = db.ensure_page(note_board_key, page_no)
+
+note_nav = st.columns([1, 1, 4, 1, 1, 2])
+if note_nav[0].button("◀", key="nb_prev", disabled=(page_no <= 1),
+                      use_container_width=True):
+    ss.note_page_no = page_no - 1
+    st.rerun()
+note_nav[1].markdown(
+    f"<div style='text-align:center;font-weight:bold;padding-top:6px'>"
+    f"P {page_no} / {total_pages}</div>",
+    unsafe_allow_html=True,
+)
+if note_nav[2].button("📃 + 新規ページ", use_container_width=True,
+                       disabled=(mode != "編集")):
+    new_p = db.add_page(note_board_key, after_page_no=page_no)
+    ss.note_page_no = new_p["page_no"]
+    ss.rev += 1
+    st.rerun()
+if note_nav[3].button("✖ 削除", key="nb_del", use_container_width=True,
+                       disabled=(mode != "編集" or total_pages <= 1)):
+    db.delete_page(page["id"])
+    ss.note_page_no = max(1, page_no - 1)
+    ss.rev += 1
+    st.rerun()
+if note_nav[4].button("▶", key="nb_next", disabled=(page_no >= total_pages),
+                      use_container_width=True):
+    ss.note_page_no = page_no + 1
+    st.rerun()
+
+
+bg_b64 = None
+if page.get("bg_data") and page.get("bg_type") != "blank":
+    bg_b64 = base64.b64encode(page["bg_data"]).decode("ascii")
+
+if mode == "編集":
+    bg_exp = st.expander("🖼 背景 (画像 / PDF)")
+    with bg_exp:
+        bg_kind = st.radio("背景", ["変更しない", "なし", "画像", "PDF"],
+                           horizontal=True, key="bg_kind")
+        if bg_kind == "なし" and st.button("背景を消す", key="bg_clear"):
+            db.clear_background(page["id"])
+            ss.rev += 1
+            st.rerun()
+        elif bg_kind == "画像":
+            up = st.file_uploader("画像を選択",
+                                  type=["png", "jpg", "jpeg", "webp"],
+                                  key="bg_img")
+            if up and st.button("背景に設定", key="bg_img_apply"):
+                db.set_background(page["id"], "image", up.read(),
+                                  {"name": up.name})
+                ss.rev += 1
+                st.rerun()
+        elif bg_kind == "PDF":
+            up = st.file_uploader("PDFを選択", type=["pdf"], key="bg_pdf")
+            if up:
+                pdf_bytes = up.read()
+                try:
+                    n = pdf_utils.pdf_page_count(pdf_bytes)
+                except Exception as e:
+                    st.error(f"PDF読込失敗: {e}")
+                    n = 0
+                if n > 0:
+                    way = st.radio("適用",
+                                   ["現ページのみ", "全ページ追加"],
+                                   horizontal=True, key="bg_pdf_way")
+                    if way == "現ページのみ":
+                        idx = st.number_input("ページ (1始まり)", 1, n, 1,
+                                              key="bg_pdf_idx")
+                        if st.button("適用", key="bg_pdf_one"):
+                            png = pdf_utils.render_page(pdf_bytes, int(idx) - 1)
+                            db.set_background(page["id"], "pdf", png,
+                                              {"src": up.name,
+                                               "pdf_page": int(idx)})
+                            ss.rev += 1
+                            st.rerun()
+                    else:
+                        if st.button("一括追加", key="bg_pdf_all"):
+                            first_new = None
+                            for i, png in enumerate(
+                                pdf_utils.render_all_pages(pdf_bytes)
+                            ):
+                                p = db.add_page(note_board_key)
+                                db.set_background(p["id"], "pdf", png,
+                                                  {"src": up.name,
+                                                   "pdf_page": i + 1})
+                                if first_new is None:
+                                    first_new = p["page_no"]
+                            if first_new is not None:
+                                ss.note_page_no = first_new
+                            ss.rev += 1
+                            st.rerun()
+
+if mode == "編集":
     component = register_whiteboard_canvas()
     payload = component(
-        key=f"wb_{board_key}_{page['id']}_{st.session_state.rev}",
+        key=f"wb_{page['id']}_{ss.rev}",
         data={
             "page_id": page["id"],
             "strokes_json": page.get("strokes_json") or "[]",
@@ -267,35 +605,56 @@ def render_note_edit(board_key):
         height="content",
         on_stroke_done=lambda: None,
     )
-
     if payload:
         done = payload.get("stroke_done")
         if done and done.get("page_id") == page["id"]:
-            strokes_json = done.get("strokes_json") or "[]"
-            img_b64 = done.get("image_png_b64") or ""
+            sj = done.get("strokes_json") or "[]"
             try:
-                img_bytes = base64.b64decode(img_b64) if img_b64 else None
+                img_bytes = (
+                    base64.b64decode(done["image_png_b64"])
+                    if done.get("image_png_b64") else None
+                )
             except Exception:
                 img_bytes = None
-            if strokes_json != (page.get("strokes_json") or "[]") or img_bytes is not None:
-                db.save_strokes(page["id"], strokes_json, img_bytes)
+            db.save_strokes(page["id"], sj, img_bytes)
+else:
+    if page.get("image_png"):
+        st.image(page["image_png"], use_container_width=True)
+    elif page.get("bg_data"):
+        st.image(page["bg_data"], use_container_width=True)
+    else:
+        st.caption("(空白ページ)")
 
-    _render_thumbnails(board_key, page_no)
+# Export
+exp_cols = st.columns([1, 1, 6])
+all_pages_full = db.get_all_pages_full(note_board_key)
+if page:
+    exp_cols[0].download_button(
+        "🖼 現ページPNG",
+        data=exporter.page_png(page),
+        file_name=f"{note_board_key}_p{page_no:02d}.png",
+        mime="image/png", use_container_width=True,
+    )
+if all_pages_full:
+    try:
+        exp_cols[1].download_button(
+            "📄 全ページPDF",
+            data=exporter.board_pdf(all_pages_full),
+            file_name=f"{note_board_key}.pdf",
+            mime="application/pdf", use_container_width=True,
+        )
+    except Exception as e:
+        exp_cols[1].caption(f"PDF生成失敗: {e}")
 
-
-def _render_thumbnails(board_key, current_no):
-    pages_meta = db.list_pages(board_key)
-    if not pages_meta:
-        return
-    st.markdown("##### ページ一覧")
-    cols_per_row = 6
-    rows = [pages_meta[i : i + cols_per_row] for i in range(0, len(pages_meta), cols_per_row)]
-    for row in rows:
-        cols = st.columns(cols_per_row)
-        for col, meta in zip(cols, row):
+# Thumbnails
+if all_pages_full:
+    st.markdown("###### ページサムネ")
+    cols_per = 8
+    for i in range(0, len(all_pages_full), cols_per):
+        cols = st.columns(cols_per)
+        for col, p in zip(cols, all_pages_full[i : i + cols_per]):
             with col:
-                page_full = db.get_page_by_id(meta["id"])
-                thumb = page_full.get("image_png") or page_full.get("bg_data")
+                thumb = p.get("image_png") or p.get("bg_data")
                 if thumb:
                     st.image(thumb, use_container_width=True)
                 else:
@@ -304,205 +663,89 @@ def _render_thumbnails(board_key, current_no):
                         "border:1px solid #ddd;border-radius:4px'></div>",
                         unsafe_allow_html=True,
                     )
-                is_cur = meta["page_no"] == current_no
-                label = f"● ページ {meta['page_no']}" if is_cur else f"ページ {meta['page_no']}"
-                if st.button(label, key=f"thumb_{meta['id']}", use_container_width=True,
-                             disabled=is_cur):
-                    st.session_state.note_page_no = meta["page_no"]
+                cur = p["page_no"] == page_no
+                if st.button(
+                    f"{'●' if cur else ''} P{p['page_no']}",
+                    key=f"thumb_{p['id']}",
+                    use_container_width=True,
+                    disabled=cur,
+                ):
+                    ss.note_page_no = p["page_no"]
                     st.rerun()
 
+st.markdown("---")
 
-# ===========================================================================
-# Sidebar
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Footer: announcements + safety + share QR
+# ---------------------------------------------------------------------------
 
+f1, f2, f3 = st.columns([4, 3, 2])
 
-st.sidebar.title("工場ホワイトボード")
-mode = st.sidebar.radio("モード", ["閲覧", "編集"], horizontal=True, key="mode_radio")
-tab_label = st.sidebar.radio(
-    "表示",
-    ["月予定", "手書きノート"],
-    horizontal=True,
-    index=0 if st.session_state.active_tab == "calendar" else 1,
-    key="tab_radio",
-)
-st.session_state.active_tab = "calendar" if tab_label == "月予定" else "note"
-
-year = st.sidebar.selectbox("年", list(range(2024, 2031)), index=2)
-mon = st.sidebar.selectbox("月", list(range(1, 13)), index=datetime.now().month - 1)
-month_key = f"{year:04d}-{mon:02d}"
-ndays_in_month = calendar.monthrange(year, mon)[1]
-board_key = month_key
-
-if mode == "編集" and st.session_state.active_tab == "calendar":
-    with st.sidebar.form("add_card", clear_on_submit=True):
-        st.subheader("札を追加")
-        a_dest = st.text_input("行先")
-        a_truck = st.text_input("車番")
-        a_person = st.text_input("氏名")
-        a_time = st.text_input("出庫時間")
-        a_color = st.selectbox(
-            "色", list(COLOR_LABELS), format_func=lambda k: COLOR_LABELS[k]
+with f1:
+    st.subheader("📣 お知らせ")
+    if not announcements:
+        st.caption("お知らせはありません。")
+    for a in announcements:
+        bg = {
+            "info": "#eef5fb",
+            "warn": "#fff8e1",
+            "alert": "#ffebee",
+        }.get(a["level"], "#fafafa")
+        border = {
+            "info": "#1976d2",
+            "warn": "#f9a825",
+            "alert": "#c62828",
+        }.get(a["level"], "#999")
+        pin = "📌 " if a["pinned"] else ""
+        ts = a.get("created_at", "")
+        cols = st.columns([10, 1])
+        cols[0].markdown(
+            f"<div style='background:{bg};border-left:4px solid {border};"
+            f"padding:6px 10px;margin:4px 0;border-radius:0 4px 4px 0'>"
+            f"<div style='font-size:13px;font-weight:500'>{pin}{a['text']}</div>"
+            f"<div style='font-size:10px;color:#777'>{ts}</div></div>",
+            unsafe_allow_html=True,
         )
-        a_day = st.selectbox("日", list(range(1, ndays_in_month + 1)))
-        if st.form_submit_button("追加", use_container_width=True):
-            db.add_card(month_key, a_day, a_dest, a_truck, a_person, a_time, a_color)
-            st.session_state.rev += 1
+        if mode == "編集" and cols[1].button(
+            "✖", key=f"del_ann_{a['id']}", use_container_width=True
+        ):
+            db.delete_announcement(a["id"])
+            ss.rev += 1
             st.rerun()
 
-if mode == "編集" and st.session_state.active_tab == "note":
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("ノート操作")
-
-    page_no_now = _clamp_page_no(board_key, st.session_state.note_page_no)
-    total_pages = db.count_pages(board_key)
-
-    cc1, cc2 = st.sidebar.columns(2)
-    if cc1.button("＋ 新規ページ", use_container_width=True):
-        new_page = db.add_page(board_key, after_page_no=page_no_now)
-        st.session_state.note_page_no = new_page["page_no"]
-        st.session_state.rev += 1
-        st.rerun()
-    if cc2.button("− 削除", use_container_width=True,
-                  disabled=(total_pages <= 1)):
-        current = db.get_page(board_key, page_no_now)
-        if current:
-            db.delete_page(current["id"])
-            st.session_state.note_page_no = max(1, page_no_now - 1)
-            st.session_state.rev += 1
-            st.rerun()
-
-    st.sidebar.markdown("**背景**")
-    bg_choice = st.sidebar.radio(
-        "種類",
-        ["変更しない", "なし(白紙)", "画像", "PDF"],
-        index=0,
-        horizontal=False,
-        key="bg_choice",
+with f2:
+    st.subheader("🦺 安全訓")
+    st.markdown(
+        "<ol style='padding-left:18px;line-height:1.6'>"
+        + "".join(f"<li>{r}</li>" for r in SAFETY_RULES)
+        + "</ol>",
+        unsafe_allow_html=True,
     )
 
-    if bg_choice == "なし(白紙)":
-        if st.sidebar.button("背景を消す", use_container_width=True):
-            current = db.get_page(board_key, page_no_now)
-            db.clear_background(current["id"])
-            st.session_state.rev += 1
-            st.rerun()
+with f3:
+    st.subheader("🔗 共有")
+    share_url = (
+        f"{st.context.headers.get('host', 'localhost')}"
+        f"?factory={factory_name}&date={base_date.isoformat()}"
+    )
+    try:
+        host_full = "https://" + st.context.headers.get("host", "localhost")
+    except Exception:
+        host_full = "https://localhost"
+    full_url = f"{host_full}/?date={base_date.isoformat()}"
+    qr = qrcode.QRCode(box_size=4, border=2)
+    qr.add_data(full_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    st.image(buf.getvalue(), use_container_width=True)
+    st.code(full_url, language="text")
 
-    elif bg_choice == "画像":
-        up = st.sidebar.file_uploader(
-            "画像を選択", type=["png", "jpg", "jpeg", "webp"], key="bg_img_uploader"
-        )
-        if up and st.sidebar.button("背景に設定", use_container_width=True,
-                                    key="set_bg_img"):
-            img_bytes = up.read()
-            current = db.get_page(board_key, page_no_now)
-            db.set_background(current["id"], "image", img_bytes,
-                              {"name": up.name})
-            st.session_state.rev += 1
-            st.rerun()
-
-    elif bg_choice == "PDF":
-        up = st.sidebar.file_uploader(
-            "PDFを選択", type=["pdf"], key="bg_pdf_uploader"
-        )
-        if up:
-            pdf_bytes = up.read()
-            try:
-                n_pages = pdf_utils.pdf_page_count(pdf_bytes)
-            except Exception as e:
-                st.sidebar.error(f"PDF読込失敗: {e}")
-                n_pages = 0
-            if n_pages > 0:
-                st.sidebar.caption(f"全 {n_pages} ページ")
-                mode_pdf = st.sidebar.radio(
-                    "適用方法",
-                    ["現在のページに1ページだけ", "全ページを新規ページとして追加"],
-                    key="bg_pdf_mode",
-                )
-                if mode_pdf == "現在のページに1ページだけ":
-                    idx = st.sidebar.number_input(
-                        "ページ番号 (1始まり)", 1, n_pages, 1, key="bg_pdf_idx"
-                    )
-                    if st.sidebar.button("背景に設定", use_container_width=True,
-                                         key="set_bg_pdf_one"):
-                        try:
-                            png = pdf_utils.render_page(pdf_bytes, int(idx) - 1)
-                            current = db.get_page(board_key, page_no_now)
-                            db.set_background(current["id"], "pdf", png,
-                                              {"src": up.name, "pdf_page": int(idx)})
-                            st.session_state.rev += 1
-                            st.rerun()
-                        except Exception as e:
-                            st.sidebar.error(f"変換失敗: {e}")
-                else:
-                    if st.sidebar.button("追加開始", use_container_width=True,
-                                         key="set_bg_pdf_all"):
-                        try:
-                            first_new = None
-                            for i, png in enumerate(pdf_utils.render_all_pages(pdf_bytes)):
-                                p = db.add_page(board_key)
-                                db.set_background(p["id"], "pdf", png,
-                                                  {"src": up.name, "pdf_page": i + 1})
-                                if first_new is None:
-                                    first_new = p["page_no"]
-                            if first_new is not None:
-                                st.session_state.note_page_no = first_new
-                            st.session_state.rev += 1
-                            st.rerun()
-                        except Exception as e:
-                            st.sidebar.error(f"取込失敗: {e}")
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("エクスポート")
-    current_page = db.get_page(board_key, page_no_now)
-    if current_page:
-        png_bytes = exporter.page_png(current_page)
-        st.sidebar.download_button(
-            "現ページ PNG ダウンロード",
-            data=png_bytes,
-            file_name=f"{board_key}_p{page_no_now:02d}.png",
-            mime="image/png",
-            use_container_width=True,
-        )
-    all_pages = db.get_all_pages_full(board_key)
-    if all_pages:
-        try:
-            pdf_bytes = exporter.board_pdf(all_pages)
-            st.sidebar.download_button(
-                "全ページ PDF ダウンロード",
-                data=pdf_bytes,
-                file_name=f"{board_key}_board.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
-        except Exception as e:
-            st.sidebar.caption(f"PDF生成失敗: {e}")
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("共有URL")
-    share_link = f"?tab=note&board={board_key}&page={page_no_now}"
-    st.sidebar.code(share_link, language="text")
-    st.sidebar.caption("このパスを現在のURLに付けると同じページが開きます。")
-
-
-# ===========================================================================
-# Main
-# ===========================================================================
-
-
-st.header(f"第3工場 月予定表 — {year}年{mon}月")
-
-if st.session_state.active_tab == "calendar":
-    if mode == "閲覧":
-        st.caption("閲覧モード:3秒ごとに自動更新されます。")
-        auto_view = st.fragment(run_every="3s")(render_calendar_view)
-        auto_view(year, mon, month_key)
-    else:
-        render_calendar_edit(year, mon, month_key)
-else:
-    if mode == "閲覧":
-        st.caption("閲覧モード:5秒ごとに自動更新されます。")
-        auto_view = st.fragment(run_every="5s")(render_note_view)
-        auto_view(board_key)
-    else:
-        render_note_edit(board_key)
+st.markdown(
+    "<div style='text-align:center;color:#999;font-size:11px;margin-top:24px'>"
+    "工場ホワイトボード ショーケース — "
+    f"DB rev {ss.rev} / 最終アクセス {datetime.now().strftime('%H:%M:%S')}"
+    "</div>",
+    unsafe_allow_html=True,
+)
