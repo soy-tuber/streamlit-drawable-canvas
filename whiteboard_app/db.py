@@ -27,12 +27,13 @@ def _conn():
 TAG_KINDS = ("destination", "truck", "person", "partner")
 
 SEED_TAGS = {
-    "destination": ["大田区古着", "横浜古着", "目黒区", "厚木PET", "愛川PET",
-                    "ふじみ衛生", "メグミルクタカナシ", "工場戻り"],
-    "truck": ["9号車", "11号車", "15号車", "16号車", "24号車", "25号車",
-              "26号車", "28号車", "29号車"],
-    "person": ["渡部", "佐藤", "鈴木", "高橋", "田中", "伊藤", "山本"],
-    "partner": ["自社", "平島運輸", "光陽物流"],
+    "destination": ["配送先A", "配送先B", "配送先C", "配送先D",
+                    "配送先E", "配送先F", "配送先G", "工場戻り"],
+    "truck": ["1号車", "2号車", "3号車", "4号車", "5号車",
+              "6号車", "7号車", "8号車", "9号車"],
+    "person": ["ドライバA", "ドライバB", "ドライバC", "ドライバD",
+               "ドライバE", "ドライバF", "ドライバG"],
+    "partner": ["自社", "協力会社A", "協力会社B"],
 }
 
 
@@ -735,43 +736,68 @@ def set_state(key, value):
 
 
 def seed_demo_data():
-    """Populate showcase demo data once (idempotent via dashboard_state flag)."""
-    if get_state("demo_seeded") == "1":
+    """Populate showcase demo data once (idempotent via dashboard_state flag).
+
+    Bump SEED_VERSION to force a wipe + re-seed when the demo content
+    or naming convention changes.
+    """
+    SEED_VERSION = "v2"
+    if get_state("demo_seeded") == SEED_VERSION:
         return
+
     today = date.today()
     mk = f"{today.year:04d}-{today.month:02d}"
 
+    # Wipe any prior content (real names from earlier seeds, leftover user data)
+    with _conn() as conn:
+        conn.execute("DELETE FROM cards")
+        conn.execute("DELETE FROM events")
+        conn.execute("DELETE FROM holidays")
+        conn.execute("DELETE FROM announcements")
+        conn.execute("DELETE FROM tag_masters")
+
+    # Re-seed tag_masters from SEED_TAGS (anonymised)
+    order = 0
+    for kind, labels in SEED_TAGS.items():
+        for label in labels:
+            upsert_tag(
+                kind, label,
+                "yellow" if kind == "destination" else "white",
+                order,
+            )
+            order += 1
+
     placed = [
-        (0,  "大田区古着",        "11号車", "渡部", "7:00",  "yellow", "自社"),
-        (0,  "横浜古着",          "15号車", "佐藤", "8:30",  "blue",   "自社"),
-        (1,  "厚木PET",           "26号車", "鈴木", "9:00",  "orange", "平島運輸"),
-        (1,  "メグミルクタカナシ", "28号車", "高橋", "10:00", "yellow", "光陽物流"),
-        (2,  "ふじみ衛生",        "24号車", "田中", "13:00", "yellow", "自社"),
-        (3,  "目黒区",            "9号車",  "伊藤", "7:30",  "blue",   "自社"),
-        (4,  "愛川PET",           "29号車", "山本", "11:00", "orange", "平島運輸"),
-        (7,  "大田区古着",        "16号車", "渡部", "7:00",  "yellow", "自社"),
-        (10, "横浜古着",          "25号車", "佐藤", "9:30",  "blue",   "自社"),
+        (0,  "配送先A", "1号車", "ドライバA", "7:00",  "yellow", "自社"),
+        (0,  "配送先B", "2号車", "ドライバB", "8:30",  "blue",   "自社"),
+        (1,  "配送先C", "3号車", "ドライバC", "9:00",  "orange", "協力会社A"),
+        (1,  "配送先D", "4号車", "ドライバD", "10:00", "yellow", "協力会社B"),
+        (2,  "配送先E", "5号車", "ドライバE", "13:00", "yellow", "自社"),
+        (3,  "配送先F", "6号車", "ドライバF", "7:30",  "blue",   "自社"),
+        (4,  "配送先G", "7号車", "ドライバG", "11:00", "orange", "協力会社A"),
+        (7,  "配送先A", "8号車", "ドライバA", "7:00",  "yellow", "自社"),
+        (10, "配送先B", "9号車", "ドライバB", "9:30",  "blue",   "自社"),
     ]
     for offset, dest, truck, person, t, color, partner in placed:
         day = today.day + offset
         if day <= 28:
             add_card(mk, day, dest, truck, person, t, color, partner)
 
-    add_card_to_stock("目黒区",    "29号車", "山本", "14:00", "yellow", "自社")
-    add_card_to_stock("愛川PET",   "9号車",  "伊藤", "15:30", "blue",   "平島運輸")
-    add_card_to_stock("ふじみ衛生", "11号車", "高橋", "16:00", "orange", "自社")
+    add_card_to_stock("配送先F", "1号車", "ドライバG", "14:00", "yellow", "自社")
+    add_card_to_stock("配送先G", "2号車", "ドライバF", "15:30", "blue",   "協力会社A")
+    add_card_to_stock("配送先E", "3号車", "ドライバD", "16:00", "orange", "自社")
 
     end_day = 28
-    add_event(mk, min(today.day + 5, end_day), "全社会", "blue", 1, "本部会議室")
+    add_event(mk, min(today.day + 5, end_day), "全社会議", "blue", 1, "本部会議室")
     add_event(mk, min(today.day + 9, end_day), "定期点検", "orange", 2, "ライン停止")
-    add_event_to_stock("夏期休業", "red", 3, "8月予定")
+    add_event_to_stock("長期休業", "red", 1, "予定日未定")
 
-    add_holiday(mk, min(today.day + 2, end_day), "渡部", "day", "私用")
-    add_holiday(mk, min(today.day + 3, end_day), "佐藤", "night", "")
-    add_holiday(mk, min(today.day + 6, end_day), "鈴木", "day", "")
+    add_holiday(mk, min(today.day + 2, end_day), "ドライバA", "day", "私用")
+    add_holiday(mk, min(today.day + 3, end_day), "ドライバB", "night", "")
+    add_holiday(mk, min(today.day + 6, end_day), "ドライバC", "day", "")
 
     add_announcement(
-        "5/20 (水) 安全パトロール実施。10:00〜現場確認。",
+        "今月20日 安全パトロール実施。10:00〜現場確認。",
         "info", True,
     )
     add_announcement(
@@ -779,8 +805,8 @@ def seed_demo_data():
         "warn", False,
     )
     add_announcement(
-        "車検済み: 11号車 / 15号車 (5/15 完了)。",
+        "車検完了: 1号車 / 2号車。",
         "info", False,
     )
 
-    set_state("demo_seeded", "1")
+    set_state("demo_seeded", SEED_VERSION)
