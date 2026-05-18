@@ -187,7 +187,7 @@ with st.sidebar.expander("🚚 配車予定", expanded=False):
             cc[0].markdown(
                 f"<div style='background:{bg};border:1px solid #888;"
                 f"border-radius:3px;padding:2px 6px;margin:2px 0;"
-                f"font-size:20px'>{label}</div>",
+                f"'>{label}</div>",
                 unsafe_allow_html=True,
             )
             if cc[1].button("✖", key=f"del_stock_card_{c['id']}",
@@ -232,7 +232,7 @@ with st.sidebar.expander("📅 月予定イベント", expanded=False):
             cc[0].markdown(
                 f"<div style='background:{db.EVENT_COLORS.get(ev['color'], '#c0392b')};"
                 f"color:#fff;border-radius:3px;padding:2px 6px;margin:2px 0;"
-                f"font-size:20px;font-weight:600'>"
+                f"font-weight:600'>"
                 f"{ev['title']}{span_txt}</div>",
                 unsafe_allow_html=True,
             )
@@ -272,7 +272,7 @@ with st.sidebar.expander("🛌 公休者管理", expanded=False):
         for h in existing:
             cc = st.columns([6, 1])
             cc[0].markdown(
-                f"<div style='font-size:20px;padding:2px 0'>"
+                f"<div style='padding:2px 0'>"
                 f"{h['day']}日 / {h['person']} ({SHIFT_LABELS.get(h['shift'], h['shift'])})"
                 f"{(' / ' + h['note']) if h['note'] else ''}</div>",
                 unsafe_allow_html=True,
@@ -379,7 +379,7 @@ announcements = db.list_announcements(limit=10)
 
 st.markdown(
     f"<h1 style='margin:0 0 4px 0'>{factory_name} 電子ホワイトボード</h1>"
-    f"<div style='color:#666;font-size:20px;margin-bottom:6px'>"
+    f"<div style='color:#666;margin-bottom:6px'>"
     f"基準日: {base_date.strftime('%Y-%m-%d (')}{WEEKDAY_JA[base_date.weekday()]}"
     f")</div>",
     unsafe_allow_html=True,
@@ -388,11 +388,11 @@ st.markdown(
 
 def _kpi_card(label, value, sub=""):
     return (
-        "<div style='border:1px solid #e0e0e0;border-radius:8px;"
-        "padding:8px 10px;background:#fff'>"
-        f"<div style='font-size:20px;color:#666'>{label}</div>"
-        f"<div style='font-size:22px;font-weight:bold;line-height:1.1'>{value}</div>"
-        f"<div style='font-size:20px;color:#888'>{sub}</div></div>"
+        "<div style='border:1px solid #e0e0e0;border-radius:6px;"
+        "padding:4px 8px;background:#fff;line-height:1.2'>"
+        f"<div style='color:#666'>{label}</div>"
+        f"<div style='font-size:22px;font-weight:bold'>{value}</div>"
+        f"<div style='color:#888'>{sub}</div></div>"
     )
 
 
@@ -403,7 +403,7 @@ holidays_today = [h for h in holidays_month if h["day"] == base_date.day]
 events_today = [e for e in all_events_month
                 if e["day"] <= base_date.day < e["day"] + e["span_days"]]
 
-top_l, top_r = st.columns([3, 2], gap="medium")
+top_l, top_r = st.columns([8, 4], gap="medium")
 
 with top_l:
     # Clock + Weather (一段)
@@ -415,7 +415,7 @@ with top_l:
             f"<div style='border:1px solid #ddd;border-radius:8px;"
             f"padding:8px 12px;background:#fafcff;text-align:center'>"
             f"<div style='font-size:36px;line-height:1'>{weather.split()[0]}</div>"
-            f"<div style='font-size:20px;color:#555'>"
+            f"<div style='color:#555'>"
             f"{' '.join(weather.split()[1:])} / {temp}°C</div></div>",
             unsafe_allow_html=True,
         )
@@ -446,13 +446,13 @@ with top_l:
 with top_r:
     # お知らせ
     st.markdown(
-        "<div style='font-size:20px;font-weight:600;margin-bottom:4px'>"
+        "<div style='font-weight:600;margin-bottom:4px'>"
         "📣 お知らせ</div>",
         unsafe_allow_html=True,
     )
     if not announcements:
         st.markdown(
-            "<div style='font-size:20px;color:#888;margin-bottom:6px'>"
+            "<div style='color:#888;margin-bottom:6px'>"
             "お知らせはまだありません。サイドバー「📣 お知らせ投稿」から登録できます。"
             "</div>",
             unsafe_allow_html=True,
@@ -467,7 +467,7 @@ with top_r:
         cc[0].markdown(
             f"<div style='background:{bg};border-left:3px solid {border};"
             f"padding:4px 8px;margin:2px 0;border-radius:0 4px 4px 0;"
-            f"font-size:20px;font-weight:500'>{pin}{a['text']}</div>",
+            f"font-weight:500'>{pin}{a['text']}</div>",
             unsafe_allow_html=True,
         )
         if cc[1].button("✖", key=f"del_ann_{a['id']}",
@@ -480,16 +480,16 @@ with top_r:
     safety_col, share_col = st.columns([3, 2])
     with safety_col:
         st.markdown(
-            "<div style='font-size:20px;font-weight:600;margin:8px 0 4px'>"
+            "<div style='font-weight:600;margin:8px 0 4px'>"
             "🦺 安全訓</div>"
-            "<ol style='padding-left:18px;margin:0;line-height:1.55;font-size:20px'>"
+            "<ol style='padding-left:18px;margin:0;line-height:1.55;'>"
             + "".join(f"<li>{r}</li>" for r in SAFETY_RULES)
             + "</ol>",
             unsafe_allow_html=True,
         )
     with share_col:
         st.markdown(
-            "<div style='font-size:20px;font-weight:600;margin:8px 0 4px'>"
+            "<div style='font-weight:600;margin:8px 0 4px'>"
             "🔗 共有URL</div>",
             unsafe_allow_html=True,
         )
@@ -506,12 +506,10 @@ with top_r:
         img.save(buf, format="PNG")
         st.image(buf.getvalue(), width=100)
         st.markdown(
-            f"<div style='font-size:20px;color:#666;word-break:break-all'>"
+            f"<div style='color:#666;word-break:break-all'>"
             f"{full_url}</div>",
             unsafe_allow_html=True,
         )
-
-st.markdown("---")
 
 
 # ---------------------------------------------------------------------------
@@ -533,7 +531,7 @@ def card_text(c):
     return line1 or line2 or ""
 
 
-main_l, main_r = st.columns([7, 5], gap="large")
+main_l, main_r = st.columns([8, 4], gap="large")
 
 with main_l:
     st.subheader("📅 月間予定表")
@@ -674,19 +672,19 @@ with main_r:
         items = by_partner.get(partner, [])
         st.markdown(
             f"**{partner}** "
-            f"<span style='color:#666;font-size:20px'>{len(items)} 便</span>",
+            f"<span style='color:#666;'>{len(items)} 便</span>",
             unsafe_allow_html=True,
         )
         if not items:
             st.markdown(
-                "<div style='color:#999;font-size:20px;margin-bottom:6px'>—</div>",
+                "<div style='color:#999;margin-bottom:6px'>—</div>",
                 unsafe_allow_html=True,
             )
             continue
         body = "".join(
             f"<div style='background:{db.COLORS.get(c['color'], '#eee')};"
             f"border:1px solid #aaa;border-radius:4px;padding:4px 8px;"
-            f"margin:2px 0;font-size:20px'>"
+            f"margin:2px 0;'>"
             f"{(c.get('time','') + ' ') if c.get('time') else ''}"
             f"{c.get('destination','')} / {c.get('truck','')} / "
             f"{c.get('person','')}</div>"
@@ -735,7 +733,7 @@ with main_r:
         header_row = (
             "<tr><th style='background:#f4f4f4'></th>"
             + "".join(
-                f"<th style='background:#f4f4f4;font-size:20px'>{d}</th>"
+                f"<th style='background:#f4f4f4;'>{d}</th>"
                 for d in range(1, ndays + 1)
             )
             + "</tr>"
@@ -752,17 +750,17 @@ with main_r:
                     cls = "background:#c8e6c9"; txt = "○"
                 cells += (
                     f"<td style='border:1px solid #ddd;width:24px;height:26px;"
-                    f"text-align:center;font-size:20px;{cls}'>{txt}</td>"
+                    f"text-align:center;{cls}'>{txt}</td>"
                 )
             body += (
-                f"<tr><th style='font-size:20px;text-align:left;"
+                f"<tr><th style='text-align:left;"
                 f"padding-right:4px;white-space:nowrap'>{p}</th>{cells}</tr>"
             )
         st.markdown(
             f"<div style='overflow-x:auto'>"
             f"<table style='border-collapse:collapse'>"
             f"{header_row}{body}</table></div>"
-            f"<div style='font-size:20px;color:#666;margin-top:4px'>"
+            f"<div style='color:#666;margin-top:4px'>"
             f"○=便あり / 休=公休 / 空=未登録</div>",
             unsafe_allow_html=True,
         )
@@ -929,7 +927,7 @@ with st.expander("📓 手書きノート (図面・地図への注釈用、PDF/
 
 st.markdown("---")
 st.markdown(
-    "<div style='color:#888;font-size:20px;padding-top:8px;text-align:center'>"
+    "<div style='color:#888;padding-top:8px;text-align:center'>"
     "工場ホワイトボード ショーケース — "
     f"DB rev {ss.rev} / 最終アクセス {datetime.now().strftime('%H:%M:%S')}"
     "</div>",
