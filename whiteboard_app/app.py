@@ -552,93 +552,98 @@ st.markdown("---")
 
 
 # ---------------------------------------------------------------------------
-# 予定一覧 (カレンダーと同じ 28日分)
+# 予定の追加・削除 (1便ずつ即時追加。月間予定表と同じ cards テーブル)
 # ---------------------------------------------------------------------------
 
-st.subheader("📋 予定一覧")
 week_end = base_date + timedelta(days=27)
+st.subheader("📋 予定の追加・削除")
 st.caption(
-    f"基準日 {base_date.month}/{base_date.day} から 28日分 "
-    f"({base_date.month}/{base_date.day} 〜 {week_end.month}/{week_end.day})。"
-    " 「日付」セルをクリックするとカレンダーピッカーが開きます。"
+    f"カレンダーに表示している {base_date.month}/{base_date.day} 〜 "
+    f"{week_end.month}/{week_end.day} の予定を追加・削除します。"
+    " 月間予定表と同じデータで、ここで追加すれば上のカレンダーにも即時反映されます。"
 )
 
-week_days = window_days
-week_dates_set = {d for d in week_days}
+with st.form("add_plan_form", clear_on_submit=True):
+    fc = st.columns([2, 2, 2, 2, 1.6, 1.6, 1.2])
+    p_date = fc[0].date_input(
+        "日付", value=base_date,
+        min_value=base_date, max_value=week_end,
+        key="add_plan_date",
+    )
+    p_dest = fc[1].selectbox(
+        "行先", [""] + db.tag_labels("destination"), key="add_plan_dest"
+    )
+    p_truck = fc[2].selectbox(
+        "車番", [""] + db.tag_labels("truck"), key="add_plan_truck"
+    )
+    p_person = fc[3].selectbox(
+        "氏名", [""] + db.tag_labels("person"), key="add_plan_person"
+    )
+    p_time = fc[4].text_input("出庫時間", key="add_plan_time")
+    p_partner_opts = db.tag_labels("partner") or ["自社"]
+    p_partner = fc[5].selectbox("協力会社", p_partner_opts, key="add_plan_partner")
+    p_color = fc[6].selectbox(
+        "色", list(db.COLORS.keys()), key="add_plan_color"
+    )
+    submitted = st.form_submit_button(
+        "➕ 予定を追加", use_container_width=True, type="primary"
+    )
+    if submitted:
+        if not any([p_dest, p_truck, p_person, p_time]):
+            st.warning("行先・車番・氏名・時間 のいずれかを1つ以上入れてください。")
+        else:
+            db.add_card(
+                _mk(p_date), p_date.day,
+                p_dest, p_truck, p_person, p_time,
+                p_color, p_partner,
+            )
+            ss.rev += 1
+            st.success(
+                f"{p_date.month}/{p_date.day} の予定を追加しました。"
+            )
+            st.rerun()
 
-week_rows = []
-for d in week_days:
+# 一覧 (28日分を時系列順に表示、各行に削除ボタン)
+window_cards_sorted = []
+for d in window_days:
     mk_d = _mk(d)
-    for r in db.get_cards_by_day(mk_d, d.day):
-        week_rows.append({
-            "date": d,
-            "destination": r["destination"],
-            "truck": r["truck"],
-            "person": r["person"],
-            "time": r["time"],
-            "partner": r.get("partner") or "自社",
-            "color": r["color"],
-        })
+    for c in window_cards_by_mk.get(mk_d, []):
+        if c["day"] == d.day:
+            window_cards_sorted.append((d, c))
 
-week_df = pd.DataFrame(
-    week_rows,
-    columns=["date", "destination", "truck", "person",
-             "time", "partner", "color"],
-)
-week_edit = st.data_editor(
-    week_df,
-    num_rows="dynamic",
-    key=f"week_editor_{ss.rev}",
-    column_config={
-        "date": st.column_config.DateColumn(
-            "日付",
-            min_value=base_date,
-            max_value=week_end,
-            format="MM/DD",
-            default=base_date,
-        ),
-        "destination": st.column_config.SelectboxColumn(
-            "行先", options=db.tag_labels("destination")
-        ),
-        "truck": st.column_config.SelectboxColumn(
-            "車番", options=db.tag_labels("truck")
-        ),
-        "person": st.column_config.SelectboxColumn(
-            "氏名", options=db.tag_labels("person")
-        ),
-        "time": st.column_config.TextColumn("出庫"),
-        "partner": st.column_config.SelectboxColumn(
-            "協力", options=db.tag_labels("partner")
-        ),
-        "color": st.column_config.SelectboxColumn(
-            "色", options=list(db.COLORS.keys())
-        ),
-    },
-    use_container_width=True,
-    hide_index=True,
-)
-
-if st.button("💾 予定を保存", type="primary", use_container_width=True,
-             key="save_week"):
-    out = week_edit.to_dict(orient="records") if hasattr(week_edit, "to_dict") else list(week_edit)
-    by_dmk = {}
-    for r in out:
-        d = r.get("date")
-        if d is None or (isinstance(d, float) and d != d):
-            continue
-        try:
-            d_obj = date(d.year, d.month, d.day)
-        except AttributeError:
-            continue
-        if d_obj not in week_dates_set:
-            continue
-        key = (_mk(d_obj), d_obj.day)
-        by_dmk.setdefault(key, []).append(r)
-    for d in week_days:
-        key = (_mk(d), d.day)
-        db.replace_cards_for_day(key[0], key[1], by_dmk.get(key, []))
-    ss.rev += 1
-    st.rerun()
+if window_cards_sorted:
+    st.markdown(
+        f"<div style='color:#666;font-size:12px;margin:8px 0'>"
+        f"登録済み {len(window_cards_sorted)} 件 (基準日から28日分)"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    for d, c in window_cards_sorted:
+        wd_label = WEEKDAY_JA[d.weekday()]
+        bg = db.COLORS.get(c["color"], "#eee")
+        is_weekend = d.weekday() >= 5
+        date_color = "#c0392b" if is_weekend else "#222"
+        row_cols = st.columns([7, 1])
+        row_cols[0].markdown(
+            f"<div style='background:{bg};border:1px solid #aaa;"
+            f"border-radius:4px;padding:6px 10px;margin:3px 0;font-size:13px'>"
+            f"<b style='color:{date_color}'>{d.month}/{d.day}({wd_label})</b> "
+            f" {c.get('time','') or '--:--'} / "
+            f"{c.get('destination','') or '—'} / "
+            f"{c.get('truck','') or '—'} / "
+            f"{c.get('person','') or '—'} "
+            f"<span style='color:#666;font-size:11px;margin-left:8px'>"
+            f"({c.get('partner','自社')})</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        if row_cols[1].button("✖", key=f"del_card_{c['id']}",
+                              use_container_width=True):
+            db.delete_card(c["id"])
+            ss.rev += 1
+            st.rerun()
+else:
+    st.info("この期間には予定がまだありません。上のフォームから追加してください。")
 
 st.markdown("---")
 
