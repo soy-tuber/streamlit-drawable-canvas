@@ -37,7 +37,7 @@ _CSS = """
 .stock-header .hint {
     font-weight: normal;
     color: #888;
-    font-size: 11px;
+    font-size: 13px;
 }
 .stock-items {
     display: flex;
@@ -47,7 +47,7 @@ _CSS = """
     align-content: flex-start;
 }
 .stock-items .card {
-    font-size: 12px;
+    font-size: 13px;
     padding: 5px 9px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.18);
     min-width: 60px;
@@ -76,7 +76,7 @@ _CSS = """
 .cell.weekend { background: #fff5f5; }
 .cell.over { outline: 2px solid #2196f3; background: #e3f2fd; }
 .cell.today { box-shadow: inset 0 0 0 2px #1976d2; }
-.month-tag { font-size: 9px; color: #888; margin-left: 3px; }
+.month-tag { font-size: 13px; color: #888; margin-left: 3px; }
 .day-head {
     display: flex;
     justify-content: space-between;
@@ -87,7 +87,7 @@ _CSS = """
     line-height: 1;
 }
 .daynum { font-weight: bold; font-size: 14px; }
-.wd { font-size: 11px; color: #666; }
+.wd { font-size: 13px; color: #666; }
 .cell.weekend .daynum, .cell.weekend .wd { color: #c0392b; }
 .cards {
     display: flex;
@@ -98,7 +98,7 @@ _CSS = """
     overflow-y: auto;
 }
 .card {
-    font-size: 11px;
+    font-size: 13px;
     padding: 3px 5px;
     border: 1px solid #888;
     border-radius: 3px;
@@ -114,7 +114,7 @@ _CSS = """
 .card.source { opacity: 0.35; }
 .events { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
 .event-band {
-    font-size: 10px;
+    font-size: 13px;
     color: #fff;
     padding: 2px 5px;
     border-radius: 3px;
