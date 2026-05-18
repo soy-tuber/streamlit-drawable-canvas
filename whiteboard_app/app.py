@@ -22,34 +22,35 @@ import streamlit as st
 
 import db
 import export as exporter
+import mobile_view
 import pdf_utils
+import translate
 from calendar_component import register_calendar_board
 from clock_component import register_clock
+from constants import SAFETY_RULES, WEEKDAY_JA
 from whiteboard_canvas import register_whiteboard_canvas
 
-WEEKDAY_JA = ["月", "火", "水", "木", "金", "土", "日"]
 COLOR_LABELS = {"yellow": "黄", "blue": "青", "orange": "橙", "white": "白"}
 WEATHER_OPTIONS = ["☀ 晴れ", "⛅ 晴時々曇", "☁ 曇り", "🌧 雨", "⛈ 雷雨",
                    "❄ 雪", "🌫 霧"]
-SAFETY_RULES = [
-    "作業前にKY (危険予知) を実施",
-    "ヘルメット・安全靴の着用必須",
-    "フォークリフト周辺は立入禁止 — 声掛けで合図",
-    "異常を発見したら即時通報、勝手な復旧は禁止",
-    "6S (整理・整頓・清掃・清潔・躾・作法) を徹底",
-]
 EVENT_COLOR_LABELS = {"red": "赤", "orange": "橙", "blue": "青",
                       "green": "緑", "gray": "灰"}
 SHIFT_LABELS = {"day": "日勤", "night": "夜勤"}
 CANVAS_W = 1280
 CANVAS_H = 720
 
+_qp = st.query_params
+_mobile = _qp.get("view") == "day"
 st.set_page_config(
     page_title="工場ホワイトボード",
-    layout="wide",
+    layout="centered" if _mobile else "wide",
     page_icon="🏭",
 )
 db.init_db()
+
+if _mobile:
+    mobile_view.render(_qp)
+    st.stop()
 
 ss = st.session_state
 ss.setdefault("rev", 0)
@@ -116,6 +117,10 @@ if factory_name != db.get_state("factory_name", "第3工場"):
 
 today = date.today()
 base_date = st.sidebar.date_input("基準日 (=当日)", value=today)
+if st.sidebar.button("📱 スマホ表示で開く", use_container_width=True):
+    st.query_params["view"] = "day"
+    st.query_params["date"] = base_date.isoformat()
+    st.rerun()
 tomorrow = base_date + timedelta(days=1)
 year, mon = base_date.year, base_date.month
 month_key = f"{year:04d}-{mon:02d}"
@@ -292,6 +297,66 @@ with st.sidebar.expander("🔐 セキュリティ", expanded=False):
                 db.set_state("pin_code", new_pin)
                 st.success("PINを更新しました。次回ログインから有効です。")
 
+# --- 翻訳 -----------------------------------------------------------------
+with st.sidebar.expander("🌐 翻訳", expanded=False):
+    if not translate.is_available():
+        st.caption(
+            "翻訳APIキーが未設定です。st.secrets に GEMINI_API_KEY を"
+            " 設定すると、お知らせ・安全訓を多言語表示できます。"
+        )
+    st.caption("お知らせ・安全訓を表示する対応言語を選びます。")
+    picked = st.multiselect(
+        "対応言語",
+        options=list(translate.LANGUAGES.keys()),
+        default=translate.enabled_langs(),
+        format_func=lambda c: translate.LANGUAGES[c],
+    )
+    if st.button("言語設定を保存", key="save_langs", use_container_width=True):
+        translate.set_enabled_langs(picked)
+        ss.rev += 1
+        st.rerun()
+
+    st.markdown("**翻訳の手修正**")
+    st.caption("自動翻訳を上書きできます。訳文を編集して保存してください。")
+    tr_rows = db.list_translations()
+    if not tr_rows:
+        st.caption("まだ翻訳キャッシュはありません。")
+    else:
+        tr_df = pd.DataFrame(
+            [
+                {"原文": r["source"],
+                 "言語": translate.LANGUAGES.get(r["lang"], r["lang"]),
+                 "訳文": r["translated"]}
+                for r in tr_rows
+            ]
+        )
+        tr_edited = st.data_editor(
+            tr_df,
+            key="translations_editor",
+            num_rows="fixed",
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "原文": st.column_config.TextColumn(disabled=True),
+                "言語": st.column_config.TextColumn(disabled=True),
+                "訳文": st.column_config.TextColumn(),
+            },
+        )
+        if st.button("訳文を保存", key="save_translations",
+                     use_container_width=True):
+            recs = (
+                tr_edited.to_dict(orient="records")
+                if hasattr(tr_edited, "to_dict") else list(tr_edited)
+            )
+            for orig, rec in zip(tr_rows, recs):
+                new_tr = (rec.get("訳文") or "").strip()
+                if new_tr and new_tr != orig["translated"]:
+                    db.save_translation(orig["text_hash"], orig["lang"],
+                                        orig["source"], new_tr, edited=1)
+            ss.rev += 1
+            st.success("訳文を更新しました。")
+            st.rerun()
+
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 ログアウト", use_container_width=True):
     ss.authed = False
@@ -381,6 +446,23 @@ st.markdown("---")
 # お知らせ + 安全訓 (top-priority block, just under KPI)
 # ---------------------------------------------------------------------------
 
+_disp_langs = ["ja"] + translate.enabled_langs()
+_lang_labels = {"ja": "日本語", **translate.LANGUAGES}
+ss.setdefault("disp_lang", "ja")
+if ss.disp_lang not in _disp_langs:
+    ss.disp_lang = "ja"
+st.radio(
+    "📣 お知らせ・🦺 安全訓 の表示言語",
+    _disp_langs,
+    format_func=lambda c: _lang_labels.get(c, c),
+    horizontal=True,
+    key="disp_lang",
+)
+disp_lang = ss.disp_lang
+ann_texts = translate.translate_batch([a["text"] for a in announcements],
+                                      disp_lang)
+safety_texts = translate.translate_batch(SAFETY_RULES, disp_lang)
+
 ann_col, safety_col, share_col = st.columns([3, 2, 2])
 
 with ann_col:
@@ -390,7 +472,7 @@ with ann_col:
             "お知らせはまだありません。"
             "サイドバー「📣 お知らせ投稿」から登録できます。"
         )
-    for a in announcements:
+    for a, a_text in zip(announcements, ann_texts):
         bg = {"info": "#eef5fb", "warn": "#fff8e1",
               "alert": "#ffebee"}.get(a["level"], "#fafafa")
         border = {"info": "#1976d2", "warn": "#f9a825",
@@ -401,7 +483,7 @@ with ann_col:
         cc[0].markdown(
             f"<div style='background:{bg};border-left:4px solid {border};"
             f"padding:8px 12px;margin:4px 0;border-radius:0 6px 6px 0'>"
-            f"<div style='font-size:14px;font-weight:500'>{pin}{a['text']}</div>"
+            f"<div style='font-size:14px;font-weight:500'>{pin}{a_text}</div>"
             f"<div style='font-size:11px;color:#777'>{ts}</div></div>",
             unsafe_allow_html=True,
         )
@@ -415,7 +497,7 @@ with safety_col:
     st.subheader("🦺 安全訓")
     st.markdown(
         "<ol style='padding-left:18px;line-height:1.7;font-size:14px'>"
-        + "".join(f"<li>{r}</li>" for r in SAFETY_RULES)
+        + "".join(f"<li>{r}</li>" for r in safety_texts)
         + "</ol>",
         unsafe_allow_html=True,
     )
@@ -426,7 +508,7 @@ with share_col:
         host_full = "https://" + st.context.headers.get("host", "localhost")
     except Exception:
         host_full = "https://localhost"
-    full_url = f"{host_full}/?date={base_date.isoformat()}"
+    full_url = f"{host_full}/?view=day&date={base_date.isoformat()}"
     qr = qrcode.QRCode(box_size=3, border=2)
     qr.add_data(full_url)
     qr.make(fit=True)

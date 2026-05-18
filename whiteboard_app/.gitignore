@@ -1,2 +1,5 @@
 whiteboard.db
+whiteboard.db-wal
+whiteboard.db-shm
 __pycache__/
+.streamlit/secrets.toml

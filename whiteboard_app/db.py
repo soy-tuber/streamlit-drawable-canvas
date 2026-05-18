@@ -155,6 +155,19 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS translations (
+                text_hash  TEXT    NOT NULL,
+                lang       TEXT    NOT NULL,
+                source     TEXT,
+                translated TEXT    NOT NULL,
+                edited     INTEGER DEFAULT 0,
+                updated_at TEXT,
+                PRIMARY KEY (text_hash, lang)
+            )
+            """
+        )
 
 
 # --- cards -------------------------------------------------------------------
@@ -631,3 +644,49 @@ def set_state(key, value):
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
+
+
+# --- translations ----------------------------------------------------------
+
+
+def get_cached_translations(hashes, lang):
+    """Return {text_hash: translated} for the given hashes in one language."""
+    hashes = list(hashes)
+    if not hashes:
+        return {}
+    placeholders = ",".join("?" * len(hashes))
+    with _conn() as conn:
+        rows = conn.execute(
+            f"SELECT text_hash, translated FROM translations "
+            f"WHERE lang=? AND text_hash IN ({placeholders})",
+            (lang, *hashes),
+        ).fetchall()
+    return {r["text_hash"]: r["translated"] for r in rows}
+
+
+def save_translation(text_hash, lang, source, translated, edited=0):
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO translations "
+            "(text_hash, lang, source, translated, edited, updated_at) "
+            "VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(text_hash, lang) DO UPDATE SET "
+            "source=excluded.source, translated=excluded.translated, "
+            "edited=excluded.edited, updated_at=excluded.updated_at",
+            (
+                text_hash,
+                lang,
+                source,
+                translated,
+                1 if edited else 0,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+
+
+def list_translations():
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM translations ORDER BY source, lang"
+        ).fetchall()
+    return [dict(r) for r in rows]
