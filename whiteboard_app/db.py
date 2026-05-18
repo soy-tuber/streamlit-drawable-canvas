@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "whiteboard.db"
@@ -732,3 +732,55 @@ def set_state(key, value):
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
+
+
+def seed_demo_data():
+    """Populate showcase demo data once (idempotent via dashboard_state flag)."""
+    if get_state("demo_seeded") == "1":
+        return
+    today = date.today()
+    mk = f"{today.year:04d}-{today.month:02d}"
+
+    placed = [
+        (0,  "大田区古着",        "11号車", "渡部", "7:00",  "yellow", "自社"),
+        (0,  "横浜古着",          "15号車", "佐藤", "8:30",  "blue",   "自社"),
+        (1,  "厚木PET",           "26号車", "鈴木", "9:00",  "orange", "平島運輸"),
+        (1,  "メグミルクタカナシ", "28号車", "高橋", "10:00", "yellow", "光陽物流"),
+        (2,  "ふじみ衛生",        "24号車", "田中", "13:00", "yellow", "自社"),
+        (3,  "目黒区",            "9号車",  "伊藤", "7:30",  "blue",   "自社"),
+        (4,  "愛川PET",           "29号車", "山本", "11:00", "orange", "平島運輸"),
+        (7,  "大田区古着",        "16号車", "渡部", "7:00",  "yellow", "自社"),
+        (10, "横浜古着",          "25号車", "佐藤", "9:30",  "blue",   "自社"),
+    ]
+    for offset, dest, truck, person, t, color, partner in placed:
+        day = today.day + offset
+        if day <= 28:
+            add_card(mk, day, dest, truck, person, t, color, partner)
+
+    add_card_to_stock("目黒区",    "29号車", "山本", "14:00", "yellow", "自社")
+    add_card_to_stock("愛川PET",   "9号車",  "伊藤", "15:30", "blue",   "平島運輸")
+    add_card_to_stock("ふじみ衛生", "11号車", "高橋", "16:00", "orange", "自社")
+
+    end_day = 28
+    add_event(mk, min(today.day + 5, end_day), "全社会", "blue", 1, "本部会議室")
+    add_event(mk, min(today.day + 9, end_day), "定期点検", "orange", 2, "ライン停止")
+    add_event_to_stock("夏期休業", "red", 3, "8月予定")
+
+    add_holiday(mk, min(today.day + 2, end_day), "渡部", "day", "私用")
+    add_holiday(mk, min(today.day + 3, end_day), "佐藤", "night", "")
+    add_holiday(mk, min(today.day + 6, end_day), "鈴木", "day", "")
+
+    add_announcement(
+        "5/20 (水) 安全パトロール実施。10:00〜現場確認。",
+        "info", True,
+    )
+    add_announcement(
+        "ヘルメット顎ひも未着用が散見されています。徹底お願いします。",
+        "warn", False,
+    )
+    add_announcement(
+        "車検済み: 11号車 / 15号車 (5/15 完了)。",
+        "info", False,
+    )
+
+    set_state("demo_seeded", "1")

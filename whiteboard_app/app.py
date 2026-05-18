@@ -50,55 +50,11 @@ st.set_page_config(
     page_icon="🏭",
 )
 db.init_db()
+db.seed_demo_data()
 
 ss = st.session_state
 ss.setdefault("rev", 0)
 ss.setdefault("note_page_no", 1)
-ss.setdefault("authed", False)
-ss.setdefault("pin_fails", 0)
-
-
-# ---------------------------------------------------------------------------
-# PIN gate
-# ---------------------------------------------------------------------------
-
-
-def _expected_pin() -> str:
-    try:
-        if "PIN_CODE" in st.secrets:
-            return str(st.secrets["PIN_CODE"]).strip()
-    except Exception:
-        pass
-    return (db.get_state("pin_code") or "2318").strip()
-
-
-if not ss.authed:
-    st.markdown(
-        "<div style='max-width:360px;margin:60px auto;text-align:center'>"
-        "<div style='font-size:64px'>🔒</div>"
-        "<h2 style='margin:4px 0'>工場ホワイトボード</h2>"
-        "<div style='color:#666;margin-bottom:18px'>PINを入力してください</div>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    _l, _c, _r = st.columns([1, 2, 1])
-    with _c:
-        with st.form("pin_form", clear_on_submit=True):
-            pin_input = st.text_input(
-                "PIN", type="password", max_chars=12,
-                placeholder="••••", label_visibility="collapsed",
-            )
-            ok = st.form_submit_button("入室", use_container_width=True,
-                                       type="primary")
-        if ok:
-            if pin_input.strip() == _expected_pin():
-                ss.authed = True
-                ss.pin_fails = 0
-                st.rerun()
-            else:
-                ss.pin_fails += 1
-                st.error(f"PINが違います (試行 {ss.pin_fails} 回)")
-    st.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -322,30 +278,6 @@ with st.sidebar.expander("📦 マスタ管理", expanded=False):
             ss.rev += 1
             st.rerun()
 
-# --- セキュリティ ---------------------------------------------------------
-with st.sidebar.expander("🔐 セキュリティ", expanded=False):
-    st.caption(
-        "PIN は st.secrets > DB > デフォルト'2318' の順で解決されます。"
-        " Streamlit Cloud では Settings → Secrets に "
-        "`PIN_CODE = \"xxxx\"` を設定すると DB より優先されます。"
-    )
-    with st.form("pin_change_form", clear_on_submit=True):
-        new_pin = st.text_input("新しいPIN", type="password", max_chars=12)
-        confirm = st.text_input("確認", type="password", max_chars=12)
-        if st.form_submit_button("PINを変更", use_container_width=True):
-            new_pin = (new_pin or "").strip()
-            if not new_pin:
-                st.warning("空のPINは設定できません")
-            elif new_pin != (confirm or "").strip():
-                st.warning("確認用PINが一致しません")
-            else:
-                db.set_state("pin_code", new_pin)
-                st.success("PINを更新しました。次回ログインから有効です。")
-
-st.sidebar.markdown("---")
-if st.sidebar.button("🚪 ログアウト", use_container_width=True):
-    ss.authed = False
-    st.rerun()
 
 
 # ---------------------------------------------------------------------------
