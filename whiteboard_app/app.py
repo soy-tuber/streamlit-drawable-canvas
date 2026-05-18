@@ -403,113 +403,6 @@ holidays_today = [h for h in holidays_month if h["day"] == base_date.day]
 events_today = [e for e in all_events_month
                 if e["day"] <= base_date.day < e["day"] + e["span_days"]]
 
-top_l, top_r = st.columns([8, 4], gap="medium")
-
-with top_l:
-    # Clock + Weather (一段)
-    hcol1, hcol2 = st.columns([2, 1])
-    with hcol1:
-        register_clock()(key=f"clock_{ss.rev}", data={}, height=100)
-    with hcol2:
-        st.markdown(
-            f"<div style='border:1px solid #ddd;border-radius:8px;"
-            f"padding:8px 12px;background:#fafcff;text-align:center'>"
-            f"<div style='font-size:36px;line-height:1'>{weather.split()[0]}</div>"
-            f"<div style='color:#555'>"
-            f"{' '.join(weather.split()[1:])} / {temp}°C</div></div>",
-            unsafe_allow_html=True,
-        )
-    # KPI 3列 × 2段
-    kpi_rows = [
-        [
-            _kpi_card("当日 便数", len(cards_today),
-                      f"翌日 {len(cards_tomorrow)} 便"),
-            _kpi_card("稼働ドライバ", unique_drivers_today,
-                      f"マスタ {len(db.tag_labels('person'))} 名"),
-            _kpi_card("稼働車両", unique_trucks_today,
-                      f"マスタ {len(db.tag_labels('truck'))} 台"),
-        ],
-        [
-            _kpi_card("協力会社", partners_today,
-                      " / ".join(db.tag_labels('partner')[:3]) or "—"),
-            _kpi_card("公休 (本日)", len(holidays_today),
-                      f"月計 {len(holidays_month)} 名"),
-            _kpi_card("イベント (本日)", len(events_today),
-                      f"月計 {len(all_events_month)} 件"),
-        ],
-    ]
-    for row in kpi_rows:
-        cols = st.columns(3)
-        for col, html in zip(cols, row):
-            col.markdown(html, unsafe_allow_html=True)
-
-with top_r:
-    # お知らせ
-    st.markdown(
-        "<div style='font-weight:600;margin-bottom:4px'>"
-        "📣 お知らせ</div>",
-        unsafe_allow_html=True,
-    )
-    if not announcements:
-        st.markdown(
-            "<div style='color:#888;margin-bottom:6px'>"
-            "お知らせはまだありません。サイドバー「📣 お知らせ投稿」から登録できます。"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-    for a in announcements[:3]:
-        bg = {"info": "#eef5fb", "warn": "#fff8e1",
-              "alert": "#ffebee"}.get(a["level"], "#fafafa")
-        border = {"info": "#1976d2", "warn": "#f9a825",
-                  "alert": "#c62828"}.get(a["level"], "#999")
-        pin = "📌 " if a["pinned"] else ""
-        cc = st.columns([10, 1])
-        cc[0].markdown(
-            f"<div style='background:{bg};border-left:3px solid {border};"
-            f"padding:4px 8px;margin:2px 0;border-radius:0 4px 4px 0;"
-            f"font-weight:500'>{pin}{a['text']}</div>",
-            unsafe_allow_html=True,
-        )
-        if cc[1].button("✖", key=f"del_ann_{a['id']}",
-                        use_container_width=True):
-            db.delete_announcement(a["id"])
-            ss.rev += 1
-            st.rerun()
-
-    # 安全訓 + 共有URL を左右に
-    safety_col, share_col = st.columns([3, 2])
-    with safety_col:
-        st.markdown(
-            "<div style='font-weight:600;margin:8px 0 4px'>"
-            "🦺 安全訓</div>"
-            "<ol style='padding-left:18px;margin:0;line-height:1.55;'>"
-            + "".join(f"<li>{r}</li>" for r in SAFETY_RULES)
-            + "</ol>",
-            unsafe_allow_html=True,
-        )
-    with share_col:
-        st.markdown(
-            "<div style='font-weight:600;margin:8px 0 4px'>"
-            "🔗 共有URL</div>",
-            unsafe_allow_html=True,
-        )
-        try:
-            host_full = "https://" + st.context.headers.get("host", "localhost")
-        except Exception:
-            host_full = "https://localhost"
-        full_url = f"{host_full}/?date={base_date.isoformat()}"
-        qr = qrcode.QRCode(box_size=2, border=1)
-        qr.add_data(full_url)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        st.image(buf.getvalue(), width=100)
-        st.markdown(
-            f"<div style='color:#666;word-break:break-all'>"
-            f"{full_url}</div>",
-            unsafe_allow_html=True,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -531,7 +424,7 @@ def card_text(c):
     return line1 or line2 or ""
 
 
-main_l, main_r = st.columns([8, 4], gap="large")
+main_l, main_r = st.columns([9, 3], gap="medium")
 
 with main_l:
     st.subheader("📅 月間予定表")
@@ -661,6 +554,103 @@ with main_l:
                     db.place_event(cid, new_mk, new_day)
 
 with main_r:
+    # Clock + Weather (compact)
+    hcol1, hcol2 = st.columns([2, 1])
+    with hcol1:
+        register_clock()(key=f"clock_{ss.rev}", data={}, height=90)
+    with hcol2:
+        st.markdown(
+            f"<div style='border:1px solid #ddd;border-radius:6px;"
+            f"padding:4px 8px;background:#fafcff;text-align:center'>"
+            f"<div style='font-size:30px;line-height:1'>{weather.split()[0]}</div>"
+            f"<div style='color:#555'>"
+            f"{' '.join(weather.split()[1:])} / {temp}°C</div></div>",
+            unsafe_allow_html=True,
+        )
+
+    # KPI 2列 × 3段 (narrow column friendly)
+    kpi_pairs = [
+        [
+            _kpi_card("当日 便数", len(cards_today),
+                      f"翌日 {len(cards_tomorrow)} 便"),
+            _kpi_card("稼働ドライバ", unique_drivers_today,
+                      f"マスタ {len(db.tag_labels('person'))} 名"),
+        ],
+        [
+            _kpi_card("稼働車両", unique_trucks_today,
+                      f"マスタ {len(db.tag_labels('truck'))} 台"),
+            _kpi_card("協力会社", partners_today,
+                      " / ".join(db.tag_labels('partner')[:2]) or "—"),
+        ],
+        [
+            _kpi_card("公休 (本日)", len(holidays_today),
+                      f"月計 {len(holidays_month)} 名"),
+            _kpi_card("イベント (本日)", len(events_today),
+                      f"月計 {len(all_events_month)} 件"),
+        ],
+    ]
+    for row in kpi_pairs:
+        cols = st.columns(2)
+        for col, html in zip(cols, row):
+            col.markdown(html, unsafe_allow_html=True)
+
+    # お知らせ
+    st.markdown(
+        "<div style='font-weight:600;margin:6px 0 2px'>📣 お知らせ</div>",
+        unsafe_allow_html=True,
+    )
+    if not announcements:
+        st.markdown(
+            "<div style='color:#888'>未登録</div>",
+            unsafe_allow_html=True,
+        )
+    for a in announcements[:3]:
+        bg = {"info": "#eef5fb", "warn": "#fff8e1",
+              "alert": "#ffebee"}.get(a["level"], "#fafafa")
+        border = {"info": "#1976d2", "warn": "#f9a825",
+                  "alert": "#c62828"}.get(a["level"], "#999")
+        pin = "📌 " if a["pinned"] else ""
+        cc = st.columns([10, 1])
+        cc[0].markdown(
+            f"<div style='background:{bg};border-left:3px solid {border};"
+            f"padding:4px 8px;margin:2px 0;border-radius:0 4px 4px 0;"
+            f"font-weight:500'>{pin}{a['text']}</div>",
+            unsafe_allow_html=True,
+        )
+        if cc[1].button("✖", key=f"del_ann_{a['id']}",
+                        use_container_width=True):
+            db.delete_announcement(a["id"])
+            ss.rev += 1
+            st.rerun()
+
+    # 安全訓 + 共有URL
+    safety_col, share_col = st.columns([3, 2])
+    with safety_col:
+        st.markdown(
+            "<div style='font-weight:600;margin:6px 0 2px'>🦺 安全訓</div>"
+            "<ol style='padding-left:18px;margin:0;line-height:1.45'>"
+            + "".join(f"<li>{r}</li>" for r in SAFETY_RULES)
+            + "</ol>",
+            unsafe_allow_html=True,
+        )
+    with share_col:
+        st.markdown(
+            "<div style='font-weight:600;margin:6px 0 2px'>🔗 共有URL</div>",
+            unsafe_allow_html=True,
+        )
+        try:
+            host_full = "https://" + st.context.headers.get("host", "localhost")
+        except Exception:
+            host_full = "https://localhost"
+        full_url = f"{host_full}/?date={base_date.isoformat()}"
+        qr = qrcode.QRCode(box_size=2, border=1)
+        qr.add_data(full_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        st.image(buf.getvalue(), width=90)
+
     # 協力会社別 (当日)
     st.subheader("🤝 協力会社別 (当日)")
     by_partner = {}
