@@ -708,7 +708,16 @@ with main_r:
             unsafe_allow_html=True,
         )
 
-    # 出勤表 (月間ヒートマップ)
+st.markdown("---")
+
+
+# ---------------------------------------------------------------------------
+# 出勤表 (左) + 手書きノート (右) を左右に並べる
+# ---------------------------------------------------------------------------
+
+att_col, note_col = st.columns([1, 1], gap="medium")
+
+with att_col:
     st.subheader("🗓 出勤表 (月間ヒートマップ)")
     persons = db.tag_labels("person")
     hol_set = {(h["day"], h["person"]) for h in holidays_month}
@@ -755,160 +764,154 @@ with main_r:
             unsafe_allow_html=True,
         )
 
-st.markdown("---")
+with note_col:
+    with st.expander("📓 手書きノート (図面・地図への注釈用、PDF/画像背景対応)",
+                     expanded=False):
+        note_board_key = f"note_{month_key}"
 
+        def _clamp(no):
+            total = db.count_pages(note_board_key)
+            if total == 0:
+                db.ensure_page(note_board_key, 1)
+                return 1
+            return max(1, min(no, total))
 
-# ---------------------------------------------------------------------------
-# 手書きノート (collapsed expander — secondary feature)
-# ---------------------------------------------------------------------------
+        page_no = _clamp(ss.note_page_no)
+        ss.note_page_no = page_no
+        total_pages = db.count_pages(note_board_key)
+        page = db.ensure_page(note_board_key, page_no)
 
-with st.expander("📓 手書きノート (図面・地図への注釈用、PDF/画像背景対応)",
-                 expanded=False):
-    note_board_key = f"note_{month_key}"
-
-    def _clamp(no):
-        total = db.count_pages(note_board_key)
-        if total == 0:
-            db.ensure_page(note_board_key, 1)
-            return 1
-        return max(1, min(no, total))
-
-    page_no = _clamp(ss.note_page_no)
-    ss.note_page_no = page_no
-    total_pages = db.count_pages(note_board_key)
-    page = db.ensure_page(note_board_key, page_no)
-
-    nav = st.columns([1, 1, 4, 1, 1])
-    if nav[0].button("◀", key="nb_prev", disabled=(page_no <= 1),
-                     use_container_width=True):
-        ss.note_page_no = page_no - 1
-        st.rerun()
-    nav[1].markdown(
-        f"<div style='text-align:center;font-weight:bold;padding-top:6px'>"
-        f"P {page_no} / {total_pages}</div>",
-        unsafe_allow_html=True,
-    )
-    if nav[2].button("📃 + 新規ページ", use_container_width=True, key="nb_add"):
-        new_p = db.add_page(note_board_key, after_page_no=page_no)
-        ss.note_page_no = new_p["page_no"]
-        ss.rev += 1
-        st.rerun()
-    if nav[3].button("✖ 削除", key="nb_del", use_container_width=True,
-                     disabled=(total_pages <= 1)):
-        db.delete_page(page["id"])
-        ss.note_page_no = max(1, page_no - 1)
-        ss.rev += 1
-        st.rerun()
-    if nav[4].button("▶", key="nb_next", disabled=(page_no >= total_pages),
-                     use_container_width=True):
-        ss.note_page_no = page_no + 1
-        st.rerun()
-
-    bg_b64 = None
-    if page.get("bg_data") and page.get("bg_type") != "blank":
-        bg_b64 = base64.b64encode(page["bg_data"]).decode("ascii")
-
-    with st.expander("🖼 背景 (画像 / PDF)", expanded=False):
-        bg_kind = st.radio("背景", ["変更しない", "なし", "画像", "PDF"],
-                           horizontal=True, key="bg_kind")
-        if bg_kind == "なし" and st.button("背景を消す", key="bg_clear"):
-            db.clear_background(page["id"])
+        nav = st.columns([1, 1, 4, 1, 1])
+        if nav[0].button("◀", key="nb_prev", disabled=(page_no <= 1),
+                         use_container_width=True):
+            ss.note_page_no = page_no - 1
+            st.rerun()
+        nav[1].markdown(
+            f"<div style='text-align:center;font-weight:bold;padding-top:6px'>"
+            f"P {page_no} / {total_pages}</div>",
+            unsafe_allow_html=True,
+        )
+        if nav[2].button("📃 + 新規ページ", use_container_width=True, key="nb_add"):
+            new_p = db.add_page(note_board_key, after_page_no=page_no)
+            ss.note_page_no = new_p["page_no"]
             ss.rev += 1
             st.rerun()
-        elif bg_kind == "画像":
-            up = st.file_uploader("画像を選択",
-                                  type=["png", "jpg", "jpeg", "webp"],
-                                  key="bg_img")
-            if up and st.button("背景に設定", key="bg_img_apply"):
-                db.set_background(page["id"], "image", up.read(),
-                                  {"name": up.name})
+        if nav[3].button("✖ 削除", key="nb_del", use_container_width=True,
+                         disabled=(total_pages <= 1)):
+            db.delete_page(page["id"])
+            ss.note_page_no = max(1, page_no - 1)
+            ss.rev += 1
+            st.rerun()
+        if nav[4].button("▶", key="nb_next", disabled=(page_no >= total_pages),
+                         use_container_width=True):
+            ss.note_page_no = page_no + 1
+            st.rerun()
+
+        bg_b64 = None
+        if page.get("bg_data") and page.get("bg_type") != "blank":
+            bg_b64 = base64.b64encode(page["bg_data"]).decode("ascii")
+
+        with st.expander("🖼 背景 (画像 / PDF)", expanded=False):
+            bg_kind = st.radio("背景", ["変更しない", "なし", "画像", "PDF"],
+                               horizontal=True, key="bg_kind")
+            if bg_kind == "なし" and st.button("背景を消す", key="bg_clear"):
+                db.clear_background(page["id"])
                 ss.rev += 1
                 st.rerun()
-        elif bg_kind == "PDF":
-            up = st.file_uploader("PDFを選択", type=["pdf"], key="bg_pdf")
-            if up:
-                pdf_bytes = up.read()
-                try:
-                    n = pdf_utils.pdf_page_count(pdf_bytes)
-                except Exception as e:
-                    st.error(f"PDF読込失敗: {e}")
-                    n = 0
-                if n > 0:
-                    way = st.radio("適用",
-                                   ["現ページのみ", "全ページ追加"],
-                                   horizontal=True, key="bg_pdf_way")
-                    if way == "現ページのみ":
-                        idx = st.number_input("ページ (1始まり)", 1, n, 1,
-                                              key="bg_pdf_idx")
-                        if st.button("適用", key="bg_pdf_one"):
-                            png = pdf_utils.render_page(pdf_bytes, int(idx) - 1)
-                            db.set_background(page["id"], "pdf", png,
-                                              {"src": up.name,
-                                               "pdf_page": int(idx)})
-                            ss.rev += 1
-                            st.rerun()
-                    else:
-                        if st.button("一括追加", key="bg_pdf_all"):
-                            first_new = None
-                            for i, png in enumerate(
-                                pdf_utils.render_all_pages(pdf_bytes)
-                            ):
-                                p = db.add_page(note_board_key)
-                                db.set_background(p["id"], "pdf", png,
+            elif bg_kind == "画像":
+                up = st.file_uploader("画像を選択",
+                                      type=["png", "jpg", "jpeg", "webp"],
+                                      key="bg_img")
+                if up and st.button("背景に設定", key="bg_img_apply"):
+                    db.set_background(page["id"], "image", up.read(),
+                                      {"name": up.name})
+                    ss.rev += 1
+                    st.rerun()
+            elif bg_kind == "PDF":
+                up = st.file_uploader("PDFを選択", type=["pdf"], key="bg_pdf")
+                if up:
+                    pdf_bytes = up.read()
+                    try:
+                        n = pdf_utils.pdf_page_count(pdf_bytes)
+                    except Exception as e:
+                        st.error(f"PDF読込失敗: {e}")
+                        n = 0
+                    if n > 0:
+                        way = st.radio("適用",
+                                       ["現ページのみ", "全ページ追加"],
+                                       horizontal=True, key="bg_pdf_way")
+                        if way == "現ページのみ":
+                            idx = st.number_input("ページ (1始まり)", 1, n, 1,
+                                                  key="bg_pdf_idx")
+                            if st.button("適用", key="bg_pdf_one"):
+                                png = pdf_utils.render_page(pdf_bytes, int(idx) - 1)
+                                db.set_background(page["id"], "pdf", png,
                                                   {"src": up.name,
-                                                   "pdf_page": i + 1})
-                                if first_new is None:
-                                    first_new = p["page_no"]
-                            if first_new is not None:
-                                ss.note_page_no = first_new
-                            ss.rev += 1
-                            st.rerun()
+                                                   "pdf_page": int(idx)})
+                                ss.rev += 1
+                                st.rerun()
+                        else:
+                            if st.button("一括追加", key="bg_pdf_all"):
+                                first_new = None
+                                for i, png in enumerate(
+                                    pdf_utils.render_all_pages(pdf_bytes)
+                                ):
+                                    p = db.add_page(note_board_key)
+                                    db.set_background(p["id"], "pdf", png,
+                                                      {"src": up.name,
+                                                       "pdf_page": i + 1})
+                                    if first_new is None:
+                                        first_new = p["page_no"]
+                                if first_new is not None:
+                                    ss.note_page_no = first_new
+                                ss.rev += 1
+                                st.rerun()
 
-    component = register_whiteboard_canvas()
-    payload = component(
-        key=f"wb_{page['id']}_{ss.rev}",
-        data={
-            "page_id": page["id"],
-            "strokes_json": page.get("strokes_json") or "[]",
-            "bg_image_b64": bg_b64,
-            "width": CANVAS_W,
-            "height": CANVAS_H,
-        },
-        height="content",
-        on_stroke_done=lambda: None,
-    )
-    if payload:
-        done = payload.get("stroke_done")
-        if done and done.get("page_id") == page["id"]:
-            sj = done.get("strokes_json") or "[]"
-            try:
-                img_bytes = (
-                    base64.b64decode(done["image_png_b64"])
-                    if done.get("image_png_b64") else None
-                )
-            except Exception:
-                img_bytes = None
-            db.save_strokes(page["id"], sj, img_bytes)
-
-    exp_cols = st.columns([1, 1, 6])
-    all_pages_full = db.get_all_pages_full(note_board_key)
-    if page:
-        exp_cols[0].download_button(
-            "🖼 現ページPNG",
-            data=exporter.page_png(page),
-            file_name=f"{note_board_key}_p{page_no:02d}.png",
-            mime="image/png", use_container_width=True,
+        component = register_whiteboard_canvas()
+        payload = component(
+            key=f"wb_{page['id']}_{ss.rev}",
+            data={
+                "page_id": page["id"],
+                "strokes_json": page.get("strokes_json") or "[]",
+                "bg_image_b64": bg_b64,
+                "width": CANVAS_W,
+                "height": CANVAS_H,
+            },
+            height="content",
+            on_stroke_done=lambda: None,
         )
-    if all_pages_full:
-        try:
-            exp_cols[1].download_button(
-                "📄 全ページPDF",
-                data=exporter.board_pdf(all_pages_full),
-                file_name=f"{note_board_key}.pdf",
-                mime="application/pdf", use_container_width=True,
+        if payload:
+            done = payload.get("stroke_done")
+            if done and done.get("page_id") == page["id"]:
+                sj = done.get("strokes_json") or "[]"
+                try:
+                    img_bytes = (
+                        base64.b64decode(done["image_png_b64"])
+                        if done.get("image_png_b64") else None
+                    )
+                except Exception:
+                    img_bytes = None
+                db.save_strokes(page["id"], sj, img_bytes)
+
+        exp_cols = st.columns([1, 1, 6])
+        all_pages_full = db.get_all_pages_full(note_board_key)
+        if page:
+            exp_cols[0].download_button(
+                "🖼 現ページPNG",
+                data=exporter.page_png(page),
+                file_name=f"{note_board_key}_p{page_no:02d}.png",
+                mime="image/png", use_container_width=True,
             )
-        except Exception as e:
-            exp_cols[1].caption(f"PDF生成失敗: {e}")
+        if all_pages_full:
+            try:
+                exp_cols[1].download_button(
+                    "📄 全ページPDF",
+                    data=exporter.board_pdf(all_pages_full),
+                    file_name=f"{note_board_key}.pdf",
+                    mime="application/pdf", use_container_width=True,
+                )
+            except Exception as e:
+                exp_cols[1].caption(f"PDF生成失敗: {e}")
 
 
 # ---------------------------------------------------------------------------
