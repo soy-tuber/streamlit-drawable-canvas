@@ -20,12 +20,14 @@ _CSS = """
     margin-bottom: 6px;
 }
 .cell {
-    min-height: 90px;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    padding: 2px;
+    min-height: 220px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    padding: 4px 4px 6px;
     background: #fff;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 .cell.weekend { background: #fff5f5; }
 .cell.over { outline: 2px solid #2196f3; background: #e3f2fd; }
@@ -35,19 +37,26 @@ _CSS = """
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    padding: 0 3px 2px;
+    padding: 0 4px 4px;
     border-bottom: 1px solid #eee;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
     line-height: 1;
 }
-.daynum { font-weight: bold; font-size: 13px; }
-.wd { font-size: 10px; color: #666; }
+.daynum { font-weight: bold; font-size: 14px; }
+.wd { font-size: 11px; color: #666; }
 .cell.weekend .daynum, .cell.weekend .wd { color: #c0392b; }
-.cards { display: flex; flex-direction: column; gap: 2px; min-height: 16px; }
+.cards {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-height: 24px;
+    flex: 1 1 auto;
+    overflow-y: auto;
+}
 .card {
-    font-size: 10px;
-    padding: 2px 4px;
-    border: 1px solid #999;
+    font-size: 11px;
+    padding: 3px 5px;
+    border: 1px solid #888;
     border-radius: 3px;
     cursor: grab;
     touch-action: none;
@@ -56,15 +65,15 @@ _CSS = """
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.25;
+    line-height: 1.3;
 }
 .card.source { opacity: 0.35; }
-.events { display: flex; flex-direction: column; gap: 1px; margin-bottom: 2px; }
+.events { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
 .event-band {
     font-size: 10px;
     color: #fff;
-    padding: 1px 4px;
-    border-radius: 2px;
+    padding: 2px 5px;
+    border-radius: 3px;
     line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
