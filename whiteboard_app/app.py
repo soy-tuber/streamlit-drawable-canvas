@@ -187,7 +187,7 @@ with st.sidebar.expander("🚚 配車予定", expanded=False):
             cc[0].markdown(
                 f"<div style='background:{bg};border:1px solid #888;"
                 f"border-radius:3px;padding:2px 6px;margin:2px 0;"
-                f"font-size:13px'>{label}</div>",
+                f"font-size:20px'>{label}</div>",
                 unsafe_allow_html=True,
             )
             if cc[1].button("✖", key=f"del_stock_card_{c['id']}",
@@ -232,7 +232,7 @@ with st.sidebar.expander("📅 月予定イベント", expanded=False):
             cc[0].markdown(
                 f"<div style='background:{db.EVENT_COLORS.get(ev['color'], '#c0392b')};"
                 f"color:#fff;border-radius:3px;padding:2px 6px;margin:2px 0;"
-                f"font-size:13px;font-weight:600'>"
+                f"font-size:20px;font-weight:600'>"
                 f"{ev['title']}{span_txt}</div>",
                 unsafe_allow_html=True,
             )
@@ -272,7 +272,7 @@ with st.sidebar.expander("🛌 公休者管理", expanded=False):
         for h in existing:
             cc = st.columns([6, 1])
             cc[0].markdown(
-                f"<div style='font-size:13px;padding:2px 0'>"
+                f"<div style='font-size:20px;padding:2px 0'>"
                 f"{h['day']}日 / {h['person']} ({SHIFT_LABELS.get(h['shift'], h['shift'])})"
                 f"{(' / ' + h['note']) if h['note'] else ''}</div>",
                 unsafe_allow_html=True,
@@ -379,7 +379,7 @@ announcements = db.list_announcements(limit=10)
 
 st.markdown(
     f"<h1 style='margin:0 0 4px 0'>{factory_name} 電子ホワイトボード</h1>"
-    f"<div style='color:#666;font-size:13px;margin-bottom:6px'>"
+    f"<div style='color:#666;font-size:20px;margin-bottom:6px'>"
     f"基準日: {base_date.strftime('%Y-%m-%d (')}{WEEKDAY_JA[base_date.weekday()]}"
     f")</div>",
     unsafe_allow_html=True,
@@ -390,9 +390,9 @@ def _kpi_card(label, value, sub=""):
     return (
         "<div style='border:1px solid #e0e0e0;border-radius:8px;"
         "padding:8px 10px;background:#fff'>"
-        f"<div style='font-size:13px;color:#666'>{label}</div>"
+        f"<div style='font-size:20px;color:#666'>{label}</div>"
         f"<div style='font-size:22px;font-weight:bold;line-height:1.1'>{value}</div>"
-        f"<div style='font-size:13px;color:#888'>{sub}</div></div>"
+        f"<div style='font-size:20px;color:#888'>{sub}</div></div>"
     )
 
 
@@ -415,7 +415,7 @@ with top_l:
             f"<div style='border:1px solid #ddd;border-radius:8px;"
             f"padding:8px 12px;background:#fafcff;text-align:center'>"
             f"<div style='font-size:36px;line-height:1'>{weather.split()[0]}</div>"
-            f"<div style='font-size:13px;color:#555'>"
+            f"<div style='font-size:20px;color:#555'>"
             f"{' '.join(weather.split()[1:])} / {temp}°C</div></div>",
             unsafe_allow_html=True,
         )
@@ -446,13 +446,13 @@ with top_l:
 with top_r:
     # お知らせ
     st.markdown(
-        "<div style='font-size:15px;font-weight:600;margin-bottom:4px'>"
+        "<div style='font-size:20px;font-weight:600;margin-bottom:4px'>"
         "📣 お知らせ</div>",
         unsafe_allow_html=True,
     )
     if not announcements:
         st.markdown(
-            "<div style='font-size:13px;color:#888;margin-bottom:6px'>"
+            "<div style='font-size:20px;color:#888;margin-bottom:6px'>"
             "お知らせはまだありません。サイドバー「📣 お知らせ投稿」から登録できます。"
             "</div>",
             unsafe_allow_html=True,
@@ -467,7 +467,7 @@ with top_r:
         cc[0].markdown(
             f"<div style='background:{bg};border-left:3px solid {border};"
             f"padding:4px 8px;margin:2px 0;border-radius:0 4px 4px 0;"
-            f"font-size:13px;font-weight:500'>{pin}{a['text']}</div>",
+            f"font-size:20px;font-weight:500'>{pin}{a['text']}</div>",
             unsafe_allow_html=True,
         )
         if cc[1].button("✖", key=f"del_ann_{a['id']}",
@@ -480,16 +480,16 @@ with top_r:
     safety_col, share_col = st.columns([3, 2])
     with safety_col:
         st.markdown(
-            "<div style='font-size:15px;font-weight:600;margin:8px 0 4px'>"
+            "<div style='font-size:20px;font-weight:600;margin:8px 0 4px'>"
             "🦺 安全訓</div>"
-            "<ol style='padding-left:18px;margin:0;line-height:1.55;font-size:13px'>"
+            "<ol style='padding-left:18px;margin:0;line-height:1.55;font-size:20px'>"
             + "".join(f"<li>{r}</li>" for r in SAFETY_RULES)
             + "</ol>",
             unsafe_allow_html=True,
         )
     with share_col:
         st.markdown(
-            "<div style='font-size:15px;font-weight:600;margin:8px 0 4px'>"
+            "<div style='font-size:20px;font-weight:600;margin:8px 0 4px'>"
             "🔗 共有URL</div>",
             unsafe_allow_html=True,
         )
@@ -506,7 +506,7 @@ with top_r:
         img.save(buf, format="PNG")
         st.image(buf.getvalue(), width=100)
         st.markdown(
-            f"<div style='font-size:13px;color:#666;word-break:break-all'>"
+            f"<div style='font-size:20px;color:#666;word-break:break-all'>"
             f"{full_url}</div>",
             unsafe_allow_html=True,
         )
@@ -533,145 +533,137 @@ def card_text(c):
     return line1 or line2 or ""
 
 
-st.subheader("📅 月間予定表")
-st.caption(
-    f"基準日 {base_date.month}/{base_date.day} から 28日ローリング "
-    "(2週間 + 2週間)。サイドバーから駒台に追加 → 駒台からドラッグで配置。"
-    "配置済みの札は日付間ドラッグで移動できます。"
-)
+main_l, main_r = st.columns([7, 5], gap="large")
 
-# Build per-day entries with month key + show_month flag
-prev_mk = None
-days_payload = []
-for d in window_days:
-    mk_d = _mk(d)
-    show_month = (d.day == 1) or (mk_d != prev_mk)
-    days_payload.append({
-        "iso": d.isoformat(),
-        "year": d.year,
-        "month": d.month,
-        "day": d.day,
-        "month_key": mk_d,
-        "weekday": d.weekday(),
-        "show_month": show_month,
-    })
-    prev_mk = mk_d
+with main_l:
+    st.subheader("📅 月間予定表")
+    st.caption(
+        f"基準日 {base_date.month}/{base_date.day} から 28日ローリング "
+        "(2週間 + 2週間)。サイドバーから駒台に追加 → 駒台からドラッグで配置。"
+        "配置済みの札は日付間ドラッグで移動できます。"
+    )
 
-# Cards / events placed on calendar (within window)
-window_card_ids = set()
-cards_payload = []
-events_payload = []
-for d in window_days:
-    mk_d = _mk(d)
-    for c in window_cards_by_mk.get(mk_d, []):
-        if c["day"] == d.day and c["id"] not in window_card_ids:
-            window_card_ids.add(c["id"])
-            cards_payload.append({
-                "id": c["id"], "day": c["day"], "month_key": mk_d,
-                "text": card_text(c) or "(空札)",
-                "color": c["color"],
+    # Build per-day entries with month key + show_month flag
+    prev_mk = None
+    days_payload = []
+    for d in window_days:
+        mk_d = _mk(d)
+        show_month = (d.day == 1) or (mk_d != prev_mk)
+        days_payload.append({
+            "iso": d.isoformat(),
+            "year": d.year,
+            "month": d.month,
+            "day": d.day,
+            "month_key": mk_d,
+            "weekday": d.weekday(),
+            "show_month": show_month,
+        })
+        prev_mk = mk_d
+
+    # Cards / events placed on calendar (within window)
+    window_card_ids = set()
+    cards_payload = []
+    events_payload = []
+    for d in window_days:
+        mk_d = _mk(d)
+        for c in window_cards_by_mk.get(mk_d, []):
+            if c["day"] == d.day and c["id"] not in window_card_ids:
+                window_card_ids.add(c["id"])
+                cards_payload.append({
+                    "id": c["id"], "day": c["day"], "month_key": mk_d,
+                    "text": card_text(c) or "(空札)",
+                    "color": c["color"],
+                })
+
+    added_events = set()
+    for mk_d, evs in window_events_by_mk.items():
+        for e in evs:
+            key = (mk_d, e["id"])
+            if key in added_events:
+                continue
+            added_events.add(key)
+            events_payload.append({
+                "id": e["id"], "day": e["day"], "month_key": mk_d,
+                "title": e["title"], "color": e["color"],
+                "span_days": e["span_days"], "note": e["note"],
             })
 
-added_events = set()
-for mk_d, evs in window_events_by_mk.items():
-    for e in evs:
-        key = (mk_d, e["id"])
-        if key in added_events:
-            continue
-        added_events.add(key)
-        events_payload.append({
-            "id": e["id"], "day": e["day"], "month_key": mk_d,
-            "title": e["title"], "color": e["color"],
-            "span_days": e["span_days"], "note": e["note"],
-        })
+    # Stock (駒台) items
+    stock_cards = db.get_stock_cards()
+    stock_events = db.get_stock_events()
+    stock_cards_payload = [
+        {"id": c["id"], "type": "card",
+         "text": card_text(c) or "(空札)",
+         "color": c["color"]}
+        for c in stock_cards
+    ]
+    stock_events_payload = [
+        {"id": e["id"], "type": "event",
+         "text": e["title"],
+         "color": e["color"],
+         "span_days": e["span_days"],
+         "note": e["note"]}
+        for e in stock_events
+    ]
 
-# Stock (駒台) items
-stock_cards = db.get_stock_cards()
-stock_events = db.get_stock_events()
-stock_cards_payload = [
-    {"id": c["id"], "type": "card",
-     "text": card_text(c) or "(空札)",
-     "color": c["color"]}
-    for c in stock_cards
-]
-stock_events_payload = [
-    {"id": e["id"], "type": "event",
-     "text": e["title"],
-     "color": e["color"],
-     "span_days": e["span_days"],
-     "note": e["note"]}
-    for e in stock_events
-]
+    cb_data = {
+        "days": days_payload,
+        "weekday_names": WEEKDAY_JA,
+        "colors": db.COLORS,
+        "event_colors": db.EVENT_COLORS,
+        "cards": cards_payload,
+        "events": events_payload,
+        "stock_cards": stock_cards_payload,
+        "stock_events": stock_events_payload,
+        "today_iso": date.today().isoformat(),
+    }
+    cb = register_calendar_board()
+    layout_result = cb(
+        key=f"cal_{base_date.isoformat()}_{ss.rev}",
+        data=cb_data,
+        height="content",
+        on_layout_change=lambda: None,
+    )
+    layout = layout_result.get("layout") if layout_result else None
+    if layout:
+        original = {}
+        for c in stock_cards:
+            original[("card", c["id"])] = ("STOCK", 0, 1)
+        for e in stock_events:
+            original[("event", e["id"])] = ("STOCK", 0, 1)
+        for _mk_c, lst in window_cards_by_mk.items():
+            for c in lst:
+                original[("card", c["id"])] = (_mk_c, c["day"], 0)
 
-cb_data = {
-    "days": days_payload,
-    "weekday_names": WEEKDAY_JA,
-    "colors": db.COLORS,
-    "event_colors": db.EVENT_COLORS,
-    "cards": cards_payload,
-    "events": events_payload,
-    "stock_cards": stock_cards_payload,
-    "stock_events": stock_events_payload,
-    "today_iso": date.today().isoformat(),
-}
-cb = register_calendar_board()
-layout_result = cb(
-    key=f"cal_{base_date.isoformat()}_{ss.rev}",
-    data=cb_data,
-    height="content",
-    on_layout_change=lambda: None,
-)
-layout = layout_result.get("layout") if layout_result else None
-if layout:
-    # Original positions: keyed by (type, id) -> (month_key, day, is_stock)
-    original = {}
-    for c in stock_cards:
-        original[("card", c["id"])] = ("STOCK", 0, 1)
-    for e in stock_events:
-        original[("event", e["id"])] = ("STOCK", 0, 1)
-    for _mk_c, lst in window_cards_by_mk.items():
-        for c in lst:
-            original[("card", c["id"])] = (_mk_c, c["day"], 0)
+        for it in layout:
+            try:
+                cid = int(it["id"])
+            except (TypeError, ValueError):
+                continue
+            typ = it.get("type", "card")
+            new_mk = it.get("month_key") or "STOCK"
+            new_day = int(it.get("day") or 0)
+            new_order = int(it.get("order") or 0)
+            new_stock = int(it.get("is_stock") or 0)
+            cur = original.get((typ, cid))
+            if cur is None:
+                continue
+            cur_mk, cur_day, cur_stock = cur
+            if (cur_mk, cur_day, cur_stock) == (new_mk, new_day, new_stock):
+                continue
+            if typ == "card":
+                if new_stock:
+                    db.unplace_card(cid)
+                else:
+                    db.place_card(cid, new_mk, new_day, new_order)
+            elif typ == "event":
+                if new_stock:
+                    db.unplace_event(cid)
+                else:
+                    db.place_event(cid, new_mk, new_day)
 
-    for it in layout:
-        try:
-            cid = int(it["id"])
-        except (TypeError, ValueError):
-            continue
-        typ = it.get("type", "card")
-        new_mk = it.get("month_key") or "STOCK"
-        new_day = int(it.get("day") or 0)
-        new_order = int(it.get("order") or 0)
-        new_stock = int(it.get("is_stock") or 0)
-        cur = original.get((typ, cid))
-        if cur is None:
-            continue
-        cur_mk, cur_day, cur_stock = cur
-        if (cur_mk, cur_day, cur_stock) == (new_mk, new_day, new_stock):
-            continue
-        if typ == "card":
-            if new_stock:
-                db.unplace_card(cid)
-            else:
-                db.place_card(cid, new_mk, new_day, new_order)
-        elif typ == "event":
-            if new_stock:
-                db.unplace_event(cid)
-            else:
-                db.place_event(cid, new_mk, new_day)
-
-st.markdown("---")
-
-
-
-
-# ---------------------------------------------------------------------------
-# 協力会社別 + 公休 + 出勤表
-# ---------------------------------------------------------------------------
-
-pa_col, hd_col, at_col = st.columns([3, 2, 4])
-
-with pa_col:
+with main_r:
+    # 協力会社別 (当日)
     st.subheader("🤝 協力会社別 (当日)")
     by_partner = {}
     for c in cards_today:
@@ -682,19 +674,19 @@ with pa_col:
         items = by_partner.get(partner, [])
         st.markdown(
             f"**{partner}** "
-            f"<span style='color:#666;font-size:13px'>{len(items)} 便</span>",
+            f"<span style='color:#666;font-size:20px'>{len(items)} 便</span>",
             unsafe_allow_html=True,
         )
         if not items:
             st.markdown(
-                "<div style='color:#999;font-size:13px;margin-bottom:6px'>—</div>",
+                "<div style='color:#999;font-size:20px;margin-bottom:6px'>—</div>",
                 unsafe_allow_html=True,
             )
             continue
         body = "".join(
             f"<div style='background:{db.COLORS.get(c['color'], '#eee')};"
             f"border:1px solid #aaa;border-radius:4px;padding:4px 8px;"
-            f"margin:2px 0;font-size:13px'>"
+            f"margin:2px 0;font-size:20px'>"
             f"{(c.get('time','') + ' ') if c.get('time') else ''}"
             f"{c.get('destination','')} / {c.get('truck','')} / "
             f"{c.get('person','')}</div>"
@@ -702,7 +694,7 @@ with pa_col:
         )
         st.markdown(body, unsafe_allow_html=True)
 
-with hd_col:
+    # 公休者ボード
     st.subheader("🛌 公休者ボード")
     if not holidays_month:
         st.caption("今月の公休登録はありません。"
@@ -728,7 +720,7 @@ with hd_col:
             unsafe_allow_html=True,
         )
 
-with at_col:
+    # 出勤表 (月間ヒートマップ)
     st.subheader("🗓 出勤表 (月間ヒートマップ)")
     persons = db.tag_labels("person")
     hol_set = {(h["day"], h["person"]) for h in holidays_month}
@@ -743,7 +735,7 @@ with at_col:
         header_row = (
             "<tr><th style='background:#f4f4f4'></th>"
             + "".join(
-                f"<th style='background:#f4f4f4;font-size:13px'>{d}</th>"
+                f"<th style='background:#f4f4f4;font-size:20px'>{d}</th>"
                 for d in range(1, ndays + 1)
             )
             + "</tr>"
@@ -759,18 +751,18 @@ with at_col:
                 elif (d, p) in work_set:
                     cls = "background:#c8e6c9"; txt = "○"
                 cells += (
-                    f"<td style='border:1px solid #ddd;width:18px;height:20px;"
-                    f"text-align:center;font-size:13px;{cls}'>{txt}</td>"
+                    f"<td style='border:1px solid #ddd;width:24px;height:26px;"
+                    f"text-align:center;font-size:20px;{cls}'>{txt}</td>"
                 )
             body += (
-                f"<tr><th style='font-size:13px;text-align:left;"
+                f"<tr><th style='font-size:20px;text-align:left;"
                 f"padding-right:4px;white-space:nowrap'>{p}</th>{cells}</tr>"
             )
         st.markdown(
             f"<div style='overflow-x:auto'>"
             f"<table style='border-collapse:collapse'>"
             f"{header_row}{body}</table></div>"
-            f"<div style='font-size:13px;color:#666;margin-top:4px'>"
+            f"<div style='font-size:20px;color:#666;margin-top:4px'>"
             f"○=便あり / 休=公休 / 空=未登録</div>",
             unsafe_allow_html=True,
         )
@@ -937,7 +929,7 @@ with st.expander("📓 手書きノート (図面・地図への注釈用、PDF/
 
 st.markdown("---")
 st.markdown(
-    "<div style='color:#888;font-size:13px;padding-top:8px;text-align:center'>"
+    "<div style='color:#888;font-size:20px;padding-top:8px;text-align:center'>"
     "工場ホワイトボード ショーケース — "
     f"DB rev {ss.rev} / 最終アクセス {datetime.now().strftime('%H:%M:%S')}"
     "</div>",
