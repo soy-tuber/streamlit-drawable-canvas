@@ -13,6 +13,7 @@ import json
 import streamlit as st
 
 import db
+from calendar_component import register_calendar_board
 
 WEEKDAY_JA = ["月", "火", "水", "木", "金", "土", "日"]
 COLOR_LABELS = {"yellow": "黄", "blue": "青", "orange": "橙", "white": "白"}
@@ -139,55 +140,52 @@ def render_view(year, mon, month_key):
     render_memo_view(month_key)
 
 
-def render_edit(year, mon, month_key):
-    try:
-        from streamlit_sortables import sort_items
-    except ImportError:
-        st.error("streamlit-sortables が未インストールです: pip install -r requirements.txt")
-        return
-
-    ndays = calendar.monthrange(year, mon)[1]
+def render_board_edit(year, mon, month_key):
+    """Calendar-grid drag board (st.components.v2)."""
     cards = db.get_cards(month_key)
+    data = {
+        "year": year,
+        "month": mon,
+        "ndays": calendar.monthrange(year, mon)[1],
+        "first_weekday": calendar.weekday(year, mon, 1),
+        "weekday_names": WEEKDAY_JA,
+        "colors": db.COLORS,
+        "cards": [
+            {
+                "id": c["id"],
+                "day": c["day"],
+                "text": card_text(c) or "(空札)",
+                "color": c["color"],
+            }
+            for c in cards
+        ],
+    }
 
-    by_day = {d: [] for d in range(1, ndays + 1)}
-    for card in cards:
-        by_day.get(card["day"], []).append(card)
-
-    label_to_id = {}
-    containers = []
-    for day in range(1, ndays + 1):
-        wd = calendar.weekday(year, mon, day)
-        items = []
-        for card in by_day[day]:
-            lbl = card_label(card)
-            label_to_id[lbl] = card["id"]
-            items.append(lbl)
-        containers.append({"header": f"{day}日 ({WEEKDAY_JA[wd]})", "items": items})
-
-    st.caption("札をドラッグして日付の間を移動できます。")
-    result = sort_items(
-        containers,
-        multi_containers=True,
-        direction="vertical",
-        key=f"sort_{month_key}_{st.session_state.rev}",
+    st.caption("札をドラッグして日付の間を移動できます(マウス・タッチ対応)。")
+    calendar_board = register_calendar_board()
+    result = calendar_board(
+        key=f"board_{month_key}_{st.session_state.rev}",
+        data=data,
+        height="content",
+        on_layout_change=lambda: None,
     )
 
-    current = {c["id"]: (c["day"], c["sort_order"]) for c in cards}
-    changes = []
-    for idx, container in enumerate(result):
-        day = idx + 1
-        items = container["items"] if isinstance(container, dict) else container
-        for order, lbl in enumerate(items):
-            card_id = label_to_id.get(lbl)
-            if card_id is None:
-                continue
-            if current.get(card_id) != (day, order):
-                changes.append((card_id, day, order))
-    if changes:
-        db.set_positions(changes)
-        st.session_state.rev += 1
-        st.rerun()
+    layout = result.get("layout") if result is not None else None
+    if layout:
+        current = {c["id"]: (c["day"], c["sort_order"]) for c in cards}
+        changed = [
+            (int(it["id"]), int(it["day"]), int(it["order"]))
+            for it in layout
+            if current.get(int(it["id"])) != (int(it["day"]), int(it["order"]))
+        ]
+        if changed:
+            db.set_positions(changed)
 
+
+def render_edit(year, mon, month_key):
+    render_board_edit(year, mon, month_key)
+
+    cards = db.get_cards(month_key)
     with st.expander("札を編集・削除"):
         if not cards:
             st.info("札がありません。サイドバーの「札を追加」から登録してください。")
