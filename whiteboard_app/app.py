@@ -134,20 +134,37 @@ with st.sidebar.expander("🚚 配車予定", expanded=False):
     if stock_cards_side:
         st.markdown(f"**駒台にある札 ({len(stock_cards_side)} 件)**")
         for c in stock_cards_side:
-            cc = st.columns([6, 1])
-            label = " / ".join(
-                p for p in [c.get("destination"), c.get("truck"),
-                            c.get("person"), c.get("time")] if p
-            ) or "(空札)"
+            label_parts = [c.get("destination"), c.get("truck"), c.get("person")]
+            label = " / ".join(p for p in label_parts if p) or "(空札)"
             bg = db.COLORS.get(c["color"], "#eee")
-            cc[0].markdown(
+            st.markdown(
                 f"<div style='background:{bg};border:1px solid #888;"
                 f"border-radius:3px;padding:2px 6px;margin:2px 0;"
                 f"'>{label}</div>",
                 unsafe_allow_html=True,
             )
-            if cc[1].button("✖", key=f"del_stock_card_{c['id']}",
-                            use_container_width=True):
+            tc = st.columns([3, 1, 1])
+            new_time = tc[0].text_input(
+                "出庫時間",
+                value=c.get("time", ""),
+                key=f"stk_time_{c['id']}",
+                label_visibility="collapsed",
+                placeholder="HH:MM",
+            )
+            if new_time != (c.get("time") or ""):
+                db.update_card(c["id"], time=new_time)
+                ss.rev += 1
+                st.rerun()
+            if tc[1].button("📋", key=f"copy_stock_card_{c['id']}",
+                            use_container_width=True, help="コピーして駒台に追加"):
+                db.add_card_to_stock(
+                    c["destination"], c["truck"], c["person"],
+                    c.get("time", ""), c["color"], c.get("partner") or "自社",
+                )
+                ss.rev += 1
+                st.rerun()
+            if tc[2].button("✖", key=f"del_stock_card_{c['id']}",
+                            use_container_width=True, help="削除"):
                 db.delete_card(c["id"])
                 ss.rev += 1
                 st.rerun()
@@ -457,6 +474,9 @@ with main_l:
         for _mk_c, lst in window_cards_by_mk.items():
             for c in lst:
                 original[("card", c["id"])] = (_mk_c, c["day"], 0)
+        for _mk_e, evs in window_events_by_mk.items():
+            for e in evs:
+                original[("event", e["id"])] = (_mk_e, e["day"], 0)
 
         for it in layout:
             try:

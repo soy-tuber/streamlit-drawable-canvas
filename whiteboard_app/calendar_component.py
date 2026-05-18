@@ -41,6 +41,7 @@ _CSS = """
 }
 .stock-items {
     display: flex;
+    flex-direction: row;
     flex-wrap: wrap;
     gap: 6px;
     min-height: 36px;
@@ -191,6 +192,16 @@ export default function(component) {
             b.style.background = EVENT_COLORS[ev.color] || '#c0392b';
             b.title = ev.title + (ev.note ? ' / ' + ev.note : '');
             b.textContent = ev.title;
+            // Drag only on the event's start cell; continuation cells are visual.
+            if (Number(d.day) === Number(ev.day)) {
+                b.dataset.id = String(ev.id);
+                b.dataset.type = 'event';
+                b.style.cursor = 'grab';
+                b.addEventListener('pointerdown', onDown);
+            } else {
+                b.classList.add('event-cont');
+                b.style.opacity = '0.7';
+            }
             evCont.appendChild(b);
         });
         cell.appendChild(evCont);
@@ -343,18 +354,39 @@ export default function(component) {
 
     function emitLayout() {
         const layout = [];
+        const seenEvents = new Set();
         cells.forEach(cell => {
             const isStock = cell.dataset.stock === '1';
             const day = isStock ? 0 : Number(cell.dataset.day);
             const monthKey = isStock ? 'STOCK' : cell.dataset.monthKey;
             if (!isStock && !monthKey) return;
             cell.querySelectorAll('.cards .card').forEach((c, idx) => {
+                const t = c.dataset.type || 'card';
+                if (t === 'event') {
+                    const eid = Number(c.dataset.id);
+                    if (seenEvents.has(eid)) return;
+                    seenEvents.add(eid);
+                }
                 layout.push({
                     id: Number(c.dataset.id),
-                    type: c.dataset.type || 'card',
+                    type: t,
                     day: day,
                     month_key: monthKey,
                     order: idx,
+                    is_stock: isStock ? 1 : 0,
+                });
+            });
+            // Event bands placed on day cells (one entry per event id)
+            cell.querySelectorAll('.events .event-band[data-id]').forEach(b => {
+                const eid = Number(b.dataset.id);
+                if (seenEvents.has(eid)) return;
+                seenEvents.add(eid);
+                layout.push({
+                    id: eid,
+                    type: 'event',
+                    day: day,
+                    month_key: monthKey,
+                    order: 0,
                     is_stock: isStock ? 1 : 0,
                 });
             });
