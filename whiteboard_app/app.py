@@ -443,11 +443,8 @@ st.markdown("---")
 
 
 # ---------------------------------------------------------------------------
-# メインボード: 月予定 + 当日 + 翌日
+# 月間予定 (1-15 / 16-31 ストリップ)
 # ---------------------------------------------------------------------------
-
-st.subheader("📅 メインボード")
-main_l, main_c, main_r = st.columns([5, 3, 3])
 
 
 def card_text(c):
@@ -456,46 +453,56 @@ def card_text(c):
     return " ".join(p for p in parts if p)
 
 
-with main_l:
-    st.markdown("##### 月間予定表")
-    st.caption("札はドラッグで日付間を移動。新規追加は当日/翌日表から。")
-    cb_data = {
-        "year": year, "month": mon,
-        "ndays": ndays,
-        "first_weekday": calendar.weekday(year, mon, 1),
-        "weekday_names": WEEKDAY_JA,
-        "colors": db.COLORS,
-        "event_colors": db.EVENT_COLORS,
-        "cards": [
-            {"id": c["id"], "day": c["day"],
-             "text": card_text(c) or "(空札)",
-             "color": c["color"]}
-            for c in all_cards_month
-        ],
-        "events": [
-            {"id": e["id"], "day": e["day"], "title": e["title"],
-             "color": e["color"], "span_days": e["span_days"],
-             "note": e["note"]}
-            for e in all_events_month
-        ],
-    }
-    cb = register_calendar_board()
-    layout_result = cb(
-        key=f"cal_{month_key}_{ss.rev}",
-        data=cb_data,
-        height="content",
-        on_layout_change=lambda: None,
-    )
-    layout = layout_result.get("layout") if layout_result else None
-    if layout:
-        current = {c["id"]: (c["day"], c["sort_order"]) for c in all_cards_month}
-        changed = [
-            (int(it["id"]), int(it["day"]), int(it["order"]))
-            for it in layout
-            if current.get(int(it["id"])) != (int(it["day"]), int(it["order"]))
-        ]
-        if changed:
-            db.set_positions(changed)
+st.subheader("📅 月間予定表")
+st.caption("実物の工場ボードに合わせ 1-15 / 16-31 の上下2段ストリップ。"
+           " 札はドラッグで日付間を移動できます。")
+cb_data = {
+    "year": year, "month": mon,
+    "ndays": ndays,
+    "first_weekday": calendar.weekday(year, mon, 1),
+    "weekday_names": WEEKDAY_JA,
+    "colors": db.COLORS,
+    "event_colors": db.EVENT_COLORS,
+    "cards": [
+        {"id": c["id"], "day": c["day"],
+         "text": card_text(c) or "(空札)",
+         "color": c["color"]}
+        for c in all_cards_month
+    ],
+    "events": [
+        {"id": e["id"], "day": e["day"], "title": e["title"],
+         "color": e["color"], "span_days": e["span_days"],
+         "note": e["note"]}
+        for e in all_events_month
+    ],
+}
+cb = register_calendar_board()
+layout_result = cb(
+    key=f"cal_{month_key}_{ss.rev}",
+    data=cb_data,
+    height="content",
+    on_layout_change=lambda: None,
+)
+layout = layout_result.get("layout") if layout_result else None
+if layout:
+    current = {c["id"]: (c["day"], c["sort_order"]) for c in all_cards_month}
+    changed = [
+        (int(it["id"]), int(it["day"]), int(it["order"]))
+        for it in layout
+        if current.get(int(it["id"])) != (int(it["day"]), int(it["order"]))
+    ]
+    if changed:
+        db.set_positions(changed)
+
+st.markdown("---")
+
+
+# ---------------------------------------------------------------------------
+# 1週間予定 (基準日から7日分)
+# ---------------------------------------------------------------------------
+
+st.subheader("📋 1週間予定")
+st.caption("基準日から7日分。各日ごとに行追加・編集・保存ができます。")
 
 
 def render_day_editor(label, day_int, key_suffix):
@@ -550,24 +557,24 @@ def render_day_editor(label, day_int, key_suffix):
         st.rerun()
 
 
-with main_c:
-    render_day_editor(
-        f"当日 {base_date.month}/{base_date.day} "
-        f"({WEEKDAY_JA[base_date.weekday()]})",
-        base_date.day, "today",
-    )
-
-with main_r:
-    if tomorrow.month == mon:
-        render_day_editor(
-            f"翌日 {tomorrow.month}/{tomorrow.day} "
-            f"({WEEKDAY_JA[tomorrow.weekday()]})",
-            tomorrow.day, "tomorrow",
-        )
+for offset in range(7):
+    day_date = base_date + timedelta(days=offset)
+    if offset == 0:
+        prefix = "当日 "
+    elif offset == 1:
+        prefix = "翌日 "
     else:
-        st.markdown(f"##### 翌日 {tomorrow.month}/{tomorrow.day} (翌月)")
+        prefix = ""
+    label = (
+        f"{prefix}{day_date.month}/{day_date.day} "
+        f"({WEEKDAY_JA[day_date.weekday()]})"
+    )
+    if day_date.month != mon:
+        st.markdown(f"##### {label} (翌月)")
         st.caption("翌月のため当画面では編集対象外です。"
                    " 基準日を翌月に変更してください。")
+        continue
+    render_day_editor(label, day_date.day, f"d{offset}")
 
 st.markdown("---")
 

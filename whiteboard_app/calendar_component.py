@@ -14,56 +14,60 @@ _HTML = "<div id='board'></div>"
 
 _CSS = """
 #board { font-family: sans-serif; }
-.grid {
+.strip {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 4px;
+    gap: 2px;
+    margin-bottom: 6px;
 }
-.head { margin-bottom: 4px; }
-.hcell {
-    text-align: center;
-    font-weight: bold;
-    padding: 4px 0;
-    background: #f0f0f0;
-    border-radius: 4px;
-}
-.hcell.weekend { color: #c0392b; }
 .cell {
-    min-height: 116px;
+    min-height: 90px;
     border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 3px;
+    border-radius: 3px;
+    padding: 2px;
     background: #fff;
+    overflow: hidden;
 }
-.cell.empty { background: #f7f7f7; border-color: #eee; }
 .cell.weekend { background: #fff5f5; }
 .cell.over { outline: 2px solid #2196f3; background: #e3f2fd; }
-.daynum { font-weight: bold; font-size: 13px; margin-bottom: 3px; }
-.cell.weekend .daynum { color: #c0392b; }
-.cards { display: flex; flex-direction: column; gap: 3px; min-height: 24px; }
+.day-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 0 3px 2px;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 2px;
+    line-height: 1;
+}
+.daynum { font-weight: bold; font-size: 13px; }
+.wd { font-size: 10px; color: #666; }
+.cell.weekend .daynum, .cell.weekend .wd { color: #c0392b; }
+.cards { display: flex; flex-direction: column; gap: 2px; min-height: 16px; }
 .card {
-    font-size: 12px;
-    padding: 3px 6px;
+    font-size: 10px;
+    padding: 2px 4px;
     border: 1px solid #999;
-    border-radius: 4px;
+    border-radius: 3px;
     cursor: grab;
     touch-action: none;
     user-select: none;
     box-sizing: border-box;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.25;
 }
 .card.source { opacity: 0.35; }
-.events { display: flex; flex-direction: column; gap: 2px; margin-bottom: 3px; }
+.events { display: flex; flex-direction: column; gap: 1px; margin-bottom: 2px; }
 .event-band {
-    font-size: 11px;
+    font-size: 10px;
     color: #fff;
-    padding: 2px 6px;
-    border-radius: 3px;
+    padding: 1px 4px;
+    border-radius: 2px;
     line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     font-weight: 500;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
 }
 """
 
@@ -90,34 +94,33 @@ export default function(component) {
         }
     });
 
-    const header = document.createElement('div');
-    header.className = 'grid head';
-    (data.weekday_names || []).forEach((wd, i) => {
-        const h = document.createElement('div');
-        h.className = 'hcell' + (i >= 5 ? ' weekend' : '');
-        h.textContent = wd;
-        header.appendChild(h);
-    });
-    host.appendChild(header);
-
-    const grid = document.createElement('div');
-    grid.className = 'grid';
-    const totalCells = Math.ceil((firstWd + ndays) / 7) * 7;
     const cells = [];
-    for (let i = 0; i < totalCells; i++) {
-        const day = i - firstWd + 1;
-        const cell = document.createElement('div');
-        cell.className = 'cell';
-        if (day < 1 || day > ndays) {
-            cell.classList.add('empty');
-        } else {
+    const wdNames = data.weekday_names || ['月','火','水','木','金','土','日'];
+
+    function buildStrip(startDay, endDay) {
+        const count = endDay - startDay + 1;
+        const strip = document.createElement('div');
+        strip.className = 'strip';
+        strip.style.gridTemplateColumns = `repeat(${count}, minmax(0, 1fr))`;
+        for (let day = startDay; day <= endDay; day++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
             const wd = (firstWd + day - 1) % 7;
             if (wd >= 5) cell.classList.add('weekend');
             cell.dataset.day = String(day);
+
+            const head = document.createElement('div');
+            head.className = 'day-head';
             const num = document.createElement('div');
             num.className = 'daynum';
             num.textContent = String(day);
-            cell.appendChild(num);
+            const wdEl = document.createElement('div');
+            wdEl.className = 'wd';
+            wdEl.textContent = wdNames[wd] || '';
+            head.appendChild(num);
+            head.appendChild(wdEl);
+            cell.appendChild(head);
+
             const evCont = document.createElement('div');
             evCont.className = 'events';
             eventsByDay[day].forEach(ev => {
@@ -129,15 +132,20 @@ export default function(component) {
                 evCont.appendChild(b);
             });
             cell.appendChild(evCont);
+
             const cont = document.createElement('div');
             cont.className = 'cards';
             cell.appendChild(cont);
             byDay[day].forEach(c => cont.appendChild(makeCard(c)));
+
             cells.push(cell);
+            strip.appendChild(cell);
         }
-        grid.appendChild(cell);
+        return strip;
     }
-    host.appendChild(grid);
+
+    host.appendChild(buildStrip(1, Math.min(15, ndays)));
+    if (ndays > 15) host.appendChild(buildStrip(16, ndays));
 
     function makeCard(c) {
         const el = document.createElement('div');
@@ -145,6 +153,7 @@ export default function(component) {
         el.dataset.id = String(c.id);
         el.style.background = COLORS[c.color] || '#eeeeee';
         el.textContent = c.text || '(空札)';
+        el.title = c.text || '(空札)';
         el.addEventListener('pointerdown', onDown);
         return el;
     }
