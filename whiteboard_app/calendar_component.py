@@ -106,9 +106,9 @@ _CSS = """
     touch-action: none;
     user-select: none;
     box-sizing: border-box;
-    white-space: nowrap;
+    white-space: pre-line;
+    word-break: break-all;
     overflow: hidden;
-    text-overflow: ellipsis;
     line-height: 1.3;
 }
 .card.source { opacity: 0.35; }

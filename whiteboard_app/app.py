@@ -508,9 +508,17 @@ st.markdown("---")
 
 
 def card_text(c):
-    parts = [c.get("destination"), c.get("truck"),
-             c.get("person"), c.get("time")]
-    return " ".join(p for p in parts if p)
+    """2-line magnet label: line 1 = 行先 / 車番, line 2 = 氏名 / 時間 / 協力会社."""
+    line1 = " / ".join(
+        p for p in [c.get("destination"), c.get("truck")] if p
+    )
+    line2_parts = [c.get("person"), c.get("time")]
+    if c.get("partner"):
+        line2_parts.append(f"({c['partner']})")
+    line2 = " ".join(p for p in line2_parts if p)
+    if line1 and line2:
+        return f"{line1}\n{line2}"
+    return line1 or line2 or ""
 
 
 st.subheader("📅 月間予定表")
