@@ -552,18 +552,18 @@ st.markdown("---")
 
 
 # ---------------------------------------------------------------------------
-# 1週間予定 (基準日から7日分 — 1テーブルで管理)
+# 予定一覧 (カレンダーと同じ 28日分)
 # ---------------------------------------------------------------------------
 
-st.subheader("📋 1週間予定")
-week_end = base_date + timedelta(days=6)
+st.subheader("📋 予定一覧")
+week_end = base_date + timedelta(days=27)
 st.caption(
-    f"基準日 {base_date.month}/{base_date.day} から 7 日分 "
+    f"基準日 {base_date.month}/{base_date.day} から 28日分 "
     f"({base_date.month}/{base_date.day} 〜 {week_end.month}/{week_end.day})。"
     " 「日付」セルをクリックするとカレンダーピッカーが開きます。"
 )
 
-week_days = [base_date + timedelta(days=o) for o in range(7)]
+week_days = window_days
 week_dates_set = {d for d in week_days}
 
 week_rows = []
