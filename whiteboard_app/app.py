@@ -381,7 +381,7 @@ st.markdown("---")
 # お知らせ + 安全訓 (top-priority block, just under KPI)
 # ---------------------------------------------------------------------------
 
-ann_col, safety_col = st.columns([3, 2])
+ann_col, safety_col, share_col = st.columns([3, 2, 2])
 
 with ann_col:
     st.subheader("📣 お知らせ")
@@ -419,6 +419,25 @@ with safety_col:
         + "</ol>",
         unsafe_allow_html=True,
     )
+
+with share_col:
+    st.subheader("🔗 共有URL")
+    try:
+        host_full = "https://" + st.context.headers.get("host", "localhost")
+    except Exception:
+        host_full = "https://localhost"
+    full_url = f"{host_full}/?date={base_date.isoformat()}"
+    qr = qrcode.QRCode(box_size=3, border=2)
+    qr.add_data(full_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    qcc1, qcc2 = st.columns([1, 2])
+    with qcc1:
+        st.image(buf.getvalue(), width=110)
+    with qcc2:
+        st.code(full_url, language="text")
 
 st.markdown("---")
 
@@ -820,34 +839,14 @@ with st.expander("📓 手書きノート (図面・地図への注釈用、PDF/
 
 
 # ---------------------------------------------------------------------------
-# Footer: share URL + QR
+# Footer
 # ---------------------------------------------------------------------------
 
 st.markdown("---")
-foot_l, foot_r = st.columns([5, 2])
-with foot_l:
-    st.markdown(
-        "<div style='color:#888;font-size:12px;padding-top:8px'>"
-        "工場ホワイトボード ショーケース — "
-        f"DB rev {ss.rev} / 最終アクセス {datetime.now().strftime('%H:%M:%S')}"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-with foot_r:
-    st.markdown("**🔗 共有URL**")
-    try:
-        host_full = "https://" + st.context.headers.get("host", "localhost")
-    except Exception:
-        host_full = "https://localhost"
-    full_url = f"{host_full}/?date={base_date.isoformat()}"
-    qr = qrcode.QRCode(box_size=3, border=2)
-    qr.add_data(full_url)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    qcc1, qcc2 = st.columns([1, 2])
-    with qcc1:
-        st.image(buf.getvalue(), width=110)
-    with qcc2:
-        st.code(full_url, language="text")
+st.markdown(
+    "<div style='color:#888;font-size:12px;padding-top:8px;text-align:center'>"
+    "工場ホワイトボード ショーケース — "
+    f"DB rev {ss.rev} / 最終アクセス {datetime.now().strftime('%H:%M:%S')}"
+    "</div>",
+    unsafe_allow_html=True,
+)
