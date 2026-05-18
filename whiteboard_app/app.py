@@ -618,7 +618,7 @@ week_edit = st.data_editor(
     hide_index=True,
 )
 
-if st.button("💾 1週間を保存", type="primary", use_container_width=True,
+if st.button("💾 予定を保存", type="primary", use_container_width=True,
              key="save_week"):
     out = week_edit.to_dict(orient="records") if hasattr(week_edit, "to_dict") else list(week_edit)
     by_dmk = {}
