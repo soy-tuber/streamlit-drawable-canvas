@@ -302,11 +302,21 @@ if st.sidebar.button("🚪 ログアウト", use_container_width=True):
 # Common data
 # ---------------------------------------------------------------------------
 
+def _mk(d):
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+tomorrow_mk = _mk(tomorrow)
 cards_today = db.get_cards_by_day(month_key, base_date.day)
-cards_tomorrow = (
-    db.get_cards_by_day(month_key, tomorrow.day)
-    if tomorrow.month == mon else []
-)
+cards_tomorrow = db.get_cards_by_day(tomorrow_mk, tomorrow.day)
+
+# 28-day rolling window starting at base_date
+window_days = [base_date + timedelta(days=i) for i in range(28)]
+window_mks = sorted({_mk(d) for d in window_days})
+
+window_cards_by_mk = {mk: db.get_cards(mk) for mk in window_mks}
+window_events_by_mk = {mk: db.list_events(mk) for mk in window_mks}
+
 all_cards_month = db.get_cards(month_key)
 all_events_month = db.list_events(month_key)
 holidays_month = db.list_holidays(month_key)
@@ -443,7 +453,7 @@ st.markdown("---")
 
 
 # ---------------------------------------------------------------------------
-# 月間予定 (1-15 / 16-31 ストリップ)
+# 月間予定 (28日ローリング: 2週間 + 2週間)
 # ---------------------------------------------------------------------------
 
 
@@ -454,127 +464,181 @@ def card_text(c):
 
 
 st.subheader("📅 月間予定表")
-st.caption("実物の工場ボードに合わせ 1-15 / 16-31 の上下2段ストリップ。"
-           " 札はドラッグで日付間を移動できます。")
+st.caption(
+    f"基準日 {base_date.month}/{base_date.day} から 28日ローリング "
+    "(2週間 + 2週間)。札はドラッグで日付間を移動できます (月跨ぎも可)。"
+)
+
+# Build per-day entries with month key + show_month flag
+prev_mk = None
+days_payload = []
+for d in window_days:
+    mk_d = _mk(d)
+    show_month = (d.day == 1) or (mk_d != prev_mk)
+    days_payload.append({
+        "iso": d.isoformat(),
+        "year": d.year,
+        "month": d.month,
+        "day": d.day,
+        "month_key": mk_d,
+        "weekday": d.weekday(),
+        "show_month": show_month,
+    })
+    prev_mk = mk_d
+
+# Collect cards / events that fall on any day in the window
+window_card_ids = set()
+cards_payload = []
+events_payload = []
+for d in window_days:
+    mk_d = _mk(d)
+    for c in window_cards_by_mk.get(mk_d, []):
+        if c["day"] == d.day and c["id"] not in window_card_ids:
+            window_card_ids.add(c["id"])
+            cards_payload.append({
+                "id": c["id"], "day": c["day"], "month_key": mk_d,
+                "text": card_text(c) or "(空札)",
+                "color": c["color"],
+            })
+
+added_events = set()
+for mk_d, evs in window_events_by_mk.items():
+    for e in evs:
+        key = (mk_d, e["id"])
+        if key in added_events:
+            continue
+        added_events.add(key)
+        events_payload.append({
+            "id": e["id"], "day": e["day"], "month_key": mk_d,
+            "title": e["title"], "color": e["color"],
+            "span_days": e["span_days"], "note": e["note"],
+        })
+
 cb_data = {
-    "year": year, "month": mon,
-    "ndays": ndays,
-    "first_weekday": calendar.weekday(year, mon, 1),
+    "days": days_payload,
     "weekday_names": WEEKDAY_JA,
     "colors": db.COLORS,
     "event_colors": db.EVENT_COLORS,
-    "cards": [
-        {"id": c["id"], "day": c["day"],
-         "text": card_text(c) or "(空札)",
-         "color": c["color"]}
-        for c in all_cards_month
-    ],
-    "events": [
-        {"id": e["id"], "day": e["day"], "title": e["title"],
-         "color": e["color"], "span_days": e["span_days"],
-         "note": e["note"]}
-        for e in all_events_month
-    ],
+    "cards": cards_payload,
+    "events": events_payload,
+    "today_iso": date.today().isoformat(),
 }
 cb = register_calendar_board()
 layout_result = cb(
-    key=f"cal_{month_key}_{ss.rev}",
+    key=f"cal_{base_date.isoformat()}_{ss.rev}",
     data=cb_data,
     height="content",
     on_layout_change=lambda: None,
 )
 layout = layout_result.get("layout") if layout_result else None
 if layout:
-    current = {c["id"]: (c["day"], c["sort_order"]) for c in all_cards_month}
-    changed = [
-        (int(it["id"]), int(it["day"]), int(it["order"]))
-        for it in layout
-        if current.get(int(it["id"])) != (int(it["day"]), int(it["order"]))
-    ]
-    if changed:
-        db.set_positions(changed)
+    # original: id -> (month_key, day, sort_order)
+    original = {
+        c["id"]: (_mk_c, c["day"], c["sort_order"])
+        for _mk_c, lst in window_cards_by_mk.items()
+        for c in lst
+    }
+    for it in layout:
+        cid = int(it["id"])
+        new_mk = it.get("month_key") or month_key
+        new_day = int(it["day"])
+        new_order = int(it["order"])
+        cur = original.get(cid)
+        if cur is None or cur != (new_mk, new_day, new_order):
+            db.update_card(cid, month=new_mk, day=new_day,
+                           sort_order=new_order)
 
 st.markdown("---")
 
 
 # ---------------------------------------------------------------------------
-# 1週間予定 (基準日から7日分)
+# 1週間予定 (基準日から7日分 — 1テーブルで管理)
 # ---------------------------------------------------------------------------
 
 st.subheader("📋 1週間予定")
-st.caption("基準日から7日分。各日ごとに行追加・編集・保存ができます。")
+week_end = base_date + timedelta(days=6)
+st.caption(
+    f"基準日 {base_date.month}/{base_date.day} から 7 日分 "
+    f"({base_date.month}/{base_date.day} 〜 {week_end.month}/{week_end.day})。"
+    " 「日付」セルをクリックするとカレンダーピッカーが開きます。"
+)
 
+week_days = [base_date + timedelta(days=o) for o in range(7)]
+week_dates_set = {d for d in week_days}
 
-def render_day_editor(label, day_int, key_suffix):
-    rows = db.get_cards_by_day(month_key, day_int)
-    st.markdown(f"##### {label}")
-    st.caption(f"{day_int}日 / {len(rows)} 便")
+week_rows = []
+for d in week_days:
+    mk_d = _mk(d)
+    for r in db.get_cards_by_day(mk_d, d.day):
+        week_rows.append({
+            "date": d,
+            "destination": r["destination"],
+            "truck": r["truck"],
+            "person": r["person"],
+            "time": r["time"],
+            "partner": r.get("partner") or "自社",
+            "color": r["color"],
+        })
 
-    df = pd.DataFrame(
-        [
-            {
-                "destination": r["destination"],
-                "truck": r["truck"],
-                "person": r["person"],
-                "time": r["time"],
-                "partner": r.get("partner") or "自社",
-                "color": r["color"],
-            }
-            for r in rows
-        ],
-        columns=["destination", "truck", "person", "time", "partner", "color"],
-    )
-    edited = st.data_editor(
-        df,
-        num_rows="dynamic",
-        key=f"daily_{key_suffix}_{ss.rev}",
-        column_config={
-            "destination": st.column_config.SelectboxColumn(
-                "行先", options=db.tag_labels("destination")
-            ),
-            "truck": st.column_config.SelectboxColumn(
-                "車番", options=db.tag_labels("truck")
-            ),
-            "person": st.column_config.SelectboxColumn(
-                "氏名", options=db.tag_labels("person")
-            ),
-            "time": st.column_config.TextColumn("出庫"),
-            "partner": st.column_config.SelectboxColumn(
-                "協力", options=db.tag_labels("partner")
-            ),
-            "color": st.column_config.SelectboxColumn(
-                "色", options=list(db.COLORS.keys())
-            ),
-        },
-        use_container_width=True,
-        hide_index=True,
-    )
-    if st.button(f"💾 {label} を保存", key=f"save_{key_suffix}",
-                 use_container_width=True, type="primary"):
-        out = edited.to_dict(orient="records") if hasattr(edited, "to_dict") else list(edited)
-        db.replace_cards_for_day(month_key, day_int, out)
-        ss.rev += 1
-        st.rerun()
+week_df = pd.DataFrame(
+    week_rows,
+    columns=["date", "destination", "truck", "person",
+             "time", "partner", "color"],
+)
+week_edit = st.data_editor(
+    week_df,
+    num_rows="dynamic",
+    key=f"week_editor_{ss.rev}",
+    column_config={
+        "date": st.column_config.DateColumn(
+            "日付",
+            min_value=base_date,
+            max_value=week_end,
+            format="MM/DD",
+            default=base_date,
+        ),
+        "destination": st.column_config.SelectboxColumn(
+            "行先", options=db.tag_labels("destination")
+        ),
+        "truck": st.column_config.SelectboxColumn(
+            "車番", options=db.tag_labels("truck")
+        ),
+        "person": st.column_config.SelectboxColumn(
+            "氏名", options=db.tag_labels("person")
+        ),
+        "time": st.column_config.TextColumn("出庫"),
+        "partner": st.column_config.SelectboxColumn(
+            "協力", options=db.tag_labels("partner")
+        ),
+        "color": st.column_config.SelectboxColumn(
+            "色", options=list(db.COLORS.keys())
+        ),
+    },
+    use_container_width=True,
+    hide_index=True,
+)
 
-
-for offset in range(7):
-    day_date = base_date + timedelta(days=offset)
-    if offset == 0:
-        prefix = "当日 "
-    elif offset == 1:
-        prefix = "翌日 "
-    else:
-        prefix = ""
-    label = (
-        f"{prefix}{day_date.month}/{day_date.day} "
-        f"({WEEKDAY_JA[day_date.weekday()]})"
-    )
-    if day_date.month != mon:
-        st.markdown(f"##### {label} (翌月)")
-        st.caption("翌月のため当画面では編集対象外です。"
-                   " 基準日を翌月に変更してください。")
-        continue
-    render_day_editor(label, day_date.day, f"d{offset}")
+if st.button("💾 1週間を保存", type="primary", use_container_width=True,
+             key="save_week"):
+    out = week_edit.to_dict(orient="records") if hasattr(week_edit, "to_dict") else list(week_edit)
+    by_dmk = {}
+    for r in out:
+        d = r.get("date")
+        if d is None or (isinstance(d, float) and d != d):
+            continue
+        try:
+            d_obj = date(d.year, d.month, d.day)
+        except AttributeError:
+            continue
+        if d_obj not in week_dates_set:
+            continue
+        key = (_mk(d_obj), d_obj.day)
+        by_dmk.setdefault(key, []).append(r)
+    for d in week_days:
+        key = (_mk(d), d.day)
+        db.replace_cards_for_day(key[0], key[1], by_dmk.get(key, []))
+    ss.rev += 1
+    st.rerun()
 
 st.markdown("---")
 

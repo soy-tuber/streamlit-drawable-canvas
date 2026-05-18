@@ -29,6 +29,8 @@ _CSS = """
 }
 .cell.weekend { background: #fff5f5; }
 .cell.over { outline: 2px solid #2196f3; background: #e3f2fd; }
+.cell.today { box-shadow: inset 0 0 0 2px #1976d2; }
+.month-tag { font-size: 9px; color: #888; margin-left: 3px; }
 .day-head {
     display: flex;
     justify-content: space-between;
@@ -79,73 +81,90 @@ export default function(component) {
 
     const COLORS = data.colors || {};
     const EVENT_COLORS = data.event_colors || {};
-    const ndays = data.ndays;
-    const firstWd = data.first_weekday;
+    const wdNames = data.weekday_names || ['月','火','水','木','金','土','日'];
+    const days = data.days || [];
+    const todayIso = data.today_iso || '';
 
-    const byDay = {};
-    const eventsByDay = {};
-    for (let d = 1; d <= ndays; d++) { byDay[d] = []; eventsByDay[d] = []; }
-    (data.cards || []).forEach(c => { if (byDay[c.day]) byDay[c.day].push(c); });
+    function keyOf(mk, d) { return mk + ':' + d; }
+
+    const byCell = {};
+    const eventsByCell = {};
+    days.forEach(d => {
+        const k = keyOf(d.month_key, d.day);
+        byCell[k] = []; eventsByCell[k] = [];
+    });
+    (data.cards || []).forEach(c => {
+        const k = keyOf(c.month_key, c.day);
+        if (byCell[k]) byCell[k].push(c);
+    });
     (data.events || []).forEach(ev => {
         const span = Math.max(1, ev.span_days || 1);
         for (let k = 0; k < span; k++) {
-            const d = ev.day + k;
-            if (eventsByDay[d]) eventsByDay[d].push(ev);
+            const cellKey = keyOf(ev.month_key, ev.day + k);
+            if (eventsByCell[cellKey]) eventsByCell[cellKey].push(ev);
         }
     });
 
     const cells = [];
-    const wdNames = data.weekday_names || ['月','火','水','木','金','土','日'];
 
-    function buildStrip(startDay, endDay) {
-        const count = endDay - startDay + 1;
+    function makeCell(d) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        if (d.weekday >= 5) cell.classList.add('weekend');
+        if (d.iso === todayIso) cell.classList.add('today');
+        cell.dataset.day = String(d.day);
+        cell.dataset.monthKey = d.month_key;
+
+        const head = document.createElement('div');
+        head.className = 'day-head';
+        const num = document.createElement('div');
+        num.className = 'daynum';
+        // Show day number; prefix month when it changes (or day 1 of new month)
+        const showMonth = d.show_month;
+        num.textContent = showMonth ? `${d.month}/${d.day}` : String(d.day);
+        const wdEl = document.createElement('div');
+        wdEl.className = 'wd';
+        wdEl.textContent = wdNames[d.weekday] || '';
+        head.appendChild(num);
+        head.appendChild(wdEl);
+        cell.appendChild(head);
+
+        const evCont = document.createElement('div');
+        evCont.className = 'events';
+        const ck = keyOf(d.month_key, d.day);
+        (eventsByCell[ck] || []).forEach(ev => {
+            const b = document.createElement('div');
+            b.className = 'event-band';
+            b.style.background = EVENT_COLORS[ev.color] || '#c0392b';
+            b.title = ev.title + (ev.note ? ' / ' + ev.note : '');
+            b.textContent = ev.title;
+            evCont.appendChild(b);
+        });
+        cell.appendChild(evCont);
+
+        const cont = document.createElement('div');
+        cont.className = 'cards';
+        cell.appendChild(cont);
+        (byCell[ck] || []).forEach(c => cont.appendChild(makeCard(c)));
+        return cell;
+    }
+
+    function buildStrip(slice) {
         const strip = document.createElement('div');
         strip.className = 'strip';
-        strip.style.gridTemplateColumns = `repeat(${count}, minmax(0, 1fr))`;
-        for (let day = startDay; day <= endDay; day++) {
-            const cell = document.createElement('div');
-            cell.className = 'cell';
-            const wd = (firstWd + day - 1) % 7;
-            if (wd >= 5) cell.classList.add('weekend');
-            cell.dataset.day = String(day);
-
-            const head = document.createElement('div');
-            head.className = 'day-head';
-            const num = document.createElement('div');
-            num.className = 'daynum';
-            num.textContent = String(day);
-            const wdEl = document.createElement('div');
-            wdEl.className = 'wd';
-            wdEl.textContent = wdNames[wd] || '';
-            head.appendChild(num);
-            head.appendChild(wdEl);
-            cell.appendChild(head);
-
-            const evCont = document.createElement('div');
-            evCont.className = 'events';
-            eventsByDay[day].forEach(ev => {
-                const b = document.createElement('div');
-                b.className = 'event-band';
-                b.style.background = EVENT_COLORS[ev.color] || '#c0392b';
-                b.title = ev.title + (ev.note ? ' / ' + ev.note : '');
-                b.textContent = ev.title;
-                evCont.appendChild(b);
-            });
-            cell.appendChild(evCont);
-
-            const cont = document.createElement('div');
-            cont.className = 'cards';
-            cell.appendChild(cont);
-            byDay[day].forEach(c => cont.appendChild(makeCard(c)));
-
+        strip.style.gridTemplateColumns = `repeat(14, minmax(0, 1fr))`;
+        slice.forEach(d => {
+            const cell = makeCell(d);
             cells.push(cell);
             strip.appendChild(cell);
-        }
+        });
         return strip;
     }
 
-    host.appendChild(buildStrip(1, Math.min(15, ndays)));
-    if (ndays > 15) host.appendChild(buildStrip(16, ndays));
+    const half1 = days.slice(0, 14);
+    const half2 = days.slice(14, 28);
+    host.appendChild(buildStrip(half1));
+    if (half2.length > 0) host.appendChild(buildStrip(half2));
 
     function makeCard(c) {
         const el = document.createElement('div');
@@ -231,8 +250,15 @@ export default function(component) {
         const layout = [];
         cells.forEach(cell => {
             const day = Number(cell.dataset.day);
+            const monthKey = cell.dataset.monthKey;
+            if (!monthKey) return;
             cell.querySelectorAll('.cards .card').forEach((c, idx) => {
-                layout.push({ id: Number(c.dataset.id), day: day, order: idx });
+                layout.push({
+                    id: Number(c.dataset.id),
+                    day: day,
+                    month_key: monthKey,
+                    order: idx,
+                });
             });
         });
         setTriggerValue('layout', layout);
