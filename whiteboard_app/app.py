@@ -58,6 +58,133 @@ ss.setdefault("note_page_no", 1)
 
 
 # ---------------------------------------------------------------------------
+# Routing — ?view=day opens the read-only mobile daily viewer.
+# The ?date=YYYY-MM-DD param selects which day to show (and is reused as the
+# 基準日 on the editable dashboard). The QR code points at ?view=day.
+# ---------------------------------------------------------------------------
+
+
+def _parse_iso(s):
+    try:
+        return date.fromisoformat(s)
+    except (ValueError, TypeError):
+        return None
+
+
+param_date = _parse_iso(st.query_params.get("date", ""))
+view_mode = st.query_params.get("view", "")
+
+
+def render_mobile_day_view(view_date):
+    """Read-only, single-column view of one day's deliveries — for phones."""
+    factory_name = db.get_state("factory_name", "第3工場")
+    weather = db.get_state("weather", WEATHER_OPTIONS[0])
+    temp = db.get_state("temperature", "22")
+    mk = f"{view_date.year:04d}-{view_date.month:02d}"
+    cards = db.get_cards_by_day(mk, view_date.day)
+    holidays = [h for h in db.list_holidays(mk) if h["day"] == view_date.day]
+    events = [e for e in db.list_events(mk)
+              if e["day"] <= view_date.day < e["day"] + e["span_days"]]
+    anns = db.list_announcements(limit=10)
+
+    st.sidebar.title("📱 当日ビュー")
+    st.sidebar.caption("読み取り専用 — 当日便の一覧です。")
+    nav_date = st.sidebar.date_input("表示日", value=view_date)
+    if nav_date != view_date:
+        st.query_params["date"] = nav_date.isoformat()
+        st.rerun()
+    if st.sidebar.button("🖥 編集ビューへ切替", use_container_width=True,
+                         type="primary"):
+        if "view" in st.query_params:
+            del st.query_params["view"]
+        st.rerun()
+
+    wd = WEEKDAY_JA[view_date.weekday()]
+    st.markdown(
+        f"<h2 style='margin:0'>{factory_name}</h2>"
+        f"<div style='font-size:22px;font-weight:bold;margin:2px 0'>"
+        f"{view_date.strftime('%Y-%m-%d')} ({wd})</div>"
+        f"<div style='color:#555'>{weather} / {temp}°C</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("---")
+
+    pinned = [a for a in anns if a["pinned"]]
+    for a in pinned:
+        st.markdown(
+            f"<div style='background:#fff8e1;border-left:4px solid #f9a825;"
+            f"padding:8px 10px;margin:4px 0;border-radius:0 6px 6px 0;"
+            f"font-weight:500'>📌 {a['text']}</div>",
+            unsafe_allow_html=True,
+        )
+
+    st.subheader(f"🚚 当日便 ({len(cards)} 便)")
+    if not cards:
+        st.info("本日の便は登録されていません。")
+    else:
+        by_partner = {}
+        for c in cards:
+            by_partner.setdefault(c.get("partner") or "自社", []).append(c)
+        for partner, items in by_partner.items():
+            st.markdown(
+                f"<div style='font-weight:600;margin:8px 0 2px'>"
+                f"{partner} <span style='color:#888'>{len(items)} 便</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            for c in items:
+                bg = db.COLORS.get(c["color"], "#eee")
+                time_txt = c.get("time", "")
+                line2 = " / ".join(
+                    p for p in [c.get("truck"), c.get("person")] if p
+                )
+                st.markdown(
+                    f"<div style='background:{bg};border:1px solid #999;"
+                    f"border-radius:6px;padding:8px 12px;margin:4px 0'>"
+                    f"<div style='font-size:17px;font-weight:bold'>"
+                    f"{(time_txt + ' ') if time_txt else ''}"
+                    f"{c.get('destination', '') or '(行先未定)'}</div>"
+                    f"<div style='color:#444;font-size:15px'>{line2}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+    if events:
+        st.subheader("📅 本日の予定")
+        for e in events:
+            st.markdown(
+                f"<div style='background:"
+                f"{db.EVENT_COLORS.get(e['color'], '#c0392b')};color:#fff;"
+                f"border-radius:6px;padding:8px 12px;margin:4px 0;"
+                f"font-weight:600'>{e['title']}"
+                f"{(' — ' + e['note']) if e['note'] else ''}</div>",
+                unsafe_allow_html=True,
+            )
+
+    if holidays:
+        st.subheader("🛌 本日の公休")
+        for h in holidays:
+            st.markdown(
+                f"<div style='border-left:4px solid #2196f3;padding:6px 12px;"
+                f"margin:4px 0;background:#f0f8ff;font-size:15px'>"
+                f"{h['person']} ({SHIFT_LABELS.get(h['shift'], h['shift'])})"
+                f"{(' / ' + h['note']) if h['note'] else ''}</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.markdown(
+        "<div style='color:#999;padding-top:16px;text-align:center'>"
+        "工場ホワイトボード — 当日ビュー (読み取り専用)</div>",
+        unsafe_allow_html=True,
+    )
+
+
+if view_mode == "day":
+    render_mobile_day_view(param_date or date.today())
+    st.stop()
+
+
+# ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
@@ -71,11 +198,16 @@ if factory_name != db.get_state("factory_name", "第3工場"):
     db.set_state("factory_name", factory_name)
 
 today = date.today()
-base_date = st.sidebar.date_input("基準日 (=当日)", value=today)
+base_date = st.sidebar.date_input("基準日 (=当日)", value=param_date or today)
 tomorrow = base_date + timedelta(days=1)
 year, mon = base_date.year, base_date.month
 month_key = f"{year:04d}-{mon:02d}"
 ndays = calendar.monthrange(year, mon)[1]
+
+if st.sidebar.button("📱 当日ビューへ切替", use_container_width=True):
+    st.query_params["view"] = "day"
+    st.query_params["date"] = base_date.isoformat()
+    st.rerun()
 
 _w_default = db.get_state("weather", WEATHER_OPTIONS[0])
 weather = st.sidebar.selectbox(
@@ -434,7 +566,9 @@ with main_l:
     stock_cards_payload = [
         {"id": c["id"], "type": "card",
          "text": card_text(c) or "(空札)",
-         "color": c["color"]}
+         "color": c["color"],
+         "x": c.get("stock_x") or 0,
+         "y": c.get("stock_y") or 0}
         for c in stock_cards
     ]
     stock_events_payload = [
@@ -442,7 +576,9 @@ with main_l:
          "text": e["title"],
          "color": e["color"],
          "span_days": e["span_days"],
-         "note": e["note"]}
+         "note": e["note"],
+         "x": e.get("stock_x") or 0,
+         "y": e.get("stock_y") or 0}
         for e in stock_events
     ]
 
@@ -468,15 +604,21 @@ with main_l:
     if layout:
         original = {}
         for c in stock_cards:
-            original[("card", c["id"])] = ("STOCK", 0, 1)
+            original[("card", c["id"])] = (
+                "STOCK", 0, 1,
+                float(c.get("stock_x") or 0), float(c.get("stock_y") or 0),
+            )
         for e in stock_events:
-            original[("event", e["id"])] = ("STOCK", 0, 1)
+            original[("event", e["id"])] = (
+                "STOCK", 0, 1,
+                float(e.get("stock_x") or 0), float(e.get("stock_y") or 0),
+            )
         for _mk_c, lst in window_cards_by_mk.items():
             for c in lst:
-                original[("card", c["id"])] = (_mk_c, c["day"], 0)
+                original[("card", c["id"])] = (_mk_c, c["day"], 0, 0.0, 0.0)
         for _mk_e, evs in window_events_by_mk.items():
             for e in evs:
-                original[("event", e["id"])] = (_mk_e, e["day"], 0)
+                original[("event", e["id"])] = (_mk_e, e["day"], 0, 0.0, 0.0)
 
         for it in layout:
             try:
@@ -488,20 +630,26 @@ with main_l:
             new_day = int(it.get("day") or 0)
             new_order = int(it.get("order") or 0)
             new_stock = int(it.get("is_stock") or 0)
+            new_x = float(it.get("stock_x") or 0)
+            new_y = float(it.get("stock_y") or 0)
             cur = original.get((typ, cid))
             if cur is None:
                 continue
-            cur_mk, cur_day, cur_stock = cur
-            if (cur_mk, cur_day, cur_stock) == (new_mk, new_day, new_stock):
+            cur_mk, cur_day, cur_stock, cur_x, cur_y = cur
+            placement_same = (cur_mk, cur_day, cur_stock) == (
+                new_mk, new_day, new_stock
+            )
+            pos_same = abs(cur_x - new_x) < 1 and abs(cur_y - new_y) < 1
+            if placement_same and (not new_stock or pos_same):
                 continue
             if typ == "card":
                 if new_stock:
-                    db.unplace_card(cid)
+                    db.unplace_card(cid, new_x, new_y)
                 else:
                     db.place_card(cid, new_mk, new_day, new_order)
             elif typ == "event":
                 if new_stock:
-                    db.unplace_event(cid)
+                    db.unplace_event(cid, new_x, new_y)
                 else:
                     db.place_event(cid, new_mk, new_day)
 
@@ -587,14 +735,15 @@ with main_r:
         )
     with share_col:
         st.markdown(
-            "<div style='font-weight:600;margin:6px 0 2px'>🔗 共有URL</div>",
+            "<div style='font-weight:600;margin:6px 0 2px'>🔗 共有URL</div>"
+            "<div style='color:#888;font-size:12px'>スマホで当日ビューを表示</div>",
             unsafe_allow_html=True,
         )
         try:
             host_full = "https://" + st.context.headers.get("host", "localhost")
         except Exception:
             host_full = "https://localhost"
-        full_url = f"{host_full}/?date={base_date.isoformat()}"
+        full_url = f"{host_full}/?view=day&date={base_date.isoformat()}"
         qr = qrcode.QRCode(box_size=2, border=1)
         qr.add_data(full_url)
         qr.make(fit=True)

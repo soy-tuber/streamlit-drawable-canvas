@@ -39,15 +39,15 @@ _CSS = """
     color: #888;
     font-size: 13px;
 }
-.stock-items {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 6px;
-    min-height: 36px;
-    align-content: flex-start;
+.stock-area .stock-items {
+    position: relative;
+    display: block;
+    min-height: 150px;
+    overflow: visible;
 }
-.stock-items .card {
+.stock-area .stock-items .card {
+    position: absolute;
+    margin: 0;
     font-size: 13px;
     padding: 5px 9px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.18);
@@ -236,7 +236,7 @@ export default function(component) {
     const stockHead = document.createElement('div');
     stockHead.className = 'stock-header';
     stockHead.innerHTML = `<span>🎯 駒台 (未配置 ${stockTotal} 件)</span>` +
-        `<span class="hint">ここから日付セルへドラッグして配置 / 日付からここへ戻すと未配置に</span>`;
+        `<span class="hint">日付セルへドラッグで配置 / 駒台内はドラッグで自由に配置</span>`;
     stockArea.appendChild(stockHead);
     const stockItems = document.createElement('div');
     stockItems.className = 'cards stock-items';
@@ -279,6 +279,8 @@ export default function(component) {
             ? `${label} (×${item.span_days}日)`
             : label;
         el.title = label + (item.note ? ' / ' + item.note : '');
+        el.style.left = (item.x || 0) + 'px';
+        el.style.top = (item.y || 0) + 'px';
         el.addEventListener('pointerdown', onDown);
         return el;
     }
@@ -326,8 +328,24 @@ export default function(component) {
         cells.forEach(c => c.classList.remove('over'));
         const cell = cellAt(e.clientX, e.clientY);
         if (cell) {
-            const cont = cell.querySelector('.cards');
-            cont.insertBefore(card, insertRef(cont, e.clientY));
+            if (cell.dataset.stock === '1') {
+                const cont = cell.querySelector('.stock-items');
+                const r = cont.getBoundingClientRect();
+                const maxX = Math.max(0, r.width - card.offsetWidth);
+                const maxY = Math.max(0, r.height - card.offsetHeight);
+                let x = Math.max(0, Math.min(e.clientX - drag.dx - r.left, maxX));
+                let y = Math.max(0, Math.min(e.clientY - drag.dy - r.top, maxY));
+                card.style.position = 'absolute';
+                card.style.left = x + 'px';
+                card.style.top = y + 'px';
+                cont.appendChild(card);
+            } else {
+                const cont = cell.querySelector('.cards');
+                card.style.position = '';
+                card.style.left = '';
+                card.style.top = '';
+                cont.insertBefore(card, insertRef(cont, e.clientY));
+            }
         }
         drag = null;
         emitLayout();
@@ -374,6 +392,8 @@ export default function(component) {
                     month_key: monthKey,
                     order: idx,
                     is_stock: isStock ? 1 : 0,
+                    stock_x: isStock ? (parseFloat(c.style.left) || 0) : 0,
+                    stock_y: isStock ? (parseFloat(c.style.top) || 0) : 0,
                 });
             });
             // Event bands placed on day cells (one entry per event id)

@@ -61,6 +61,10 @@ def init_db():
             conn.execute("ALTER TABLE cards ADD COLUMN partner TEXT DEFAULT '自社'")
         if "is_stock" not in cols:
             conn.execute("ALTER TABLE cards ADD COLUMN is_stock INTEGER DEFAULT 0")
+        if "stock_x" not in cols:
+            conn.execute("ALTER TABLE cards ADD COLUMN stock_x REAL DEFAULT 0")
+        if "stock_y" not in cols:
+            conn.execute("ALTER TABLE cards ADD COLUMN stock_y REAL DEFAULT 0")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tag_masters (
@@ -161,6 +165,10 @@ def init_db():
         ev_cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
         if "is_stock" not in ev_cols:
             conn.execute("ALTER TABLE events ADD COLUMN is_stock INTEGER DEFAULT 0")
+        if "stock_x" not in ev_cols:
+            conn.execute("ALTER TABLE events ADD COLUMN stock_x REAL DEFAULT 0")
+        if "stock_y" not in ev_cols:
+            conn.execute("ALTER TABLE events ADD COLUMN stock_y REAL DEFAULT 0")
 
 
 # --- cards -------------------------------------------------------------------
@@ -195,19 +203,26 @@ def add_card(month, day, destination, truck, person, time, color, partner="自�
 
 
 def add_card_to_stock(destination, truck, person, time, color, partner="自社"):
-    """Add a card to the stock (駒台) pool, with no date assigned yet."""
+    """Add a card to the stock (駒台) pool, with no date assigned yet.
+
+    New cards are dropped onto the 駒台 in a cascading grid so they do not
+    all pile up on the same spot; they can then be dragged freely.
+    """
     with _conn() as conn:
         n = conn.execute(
             "SELECT COUNT(*) FROM cards WHERE is_stock=1"
         ).fetchone()[0]
+        stock_x = 10 + (n % 6) * 116
+        stock_y = 10 + ((n // 6) % 5) * 42
         conn.execute(
             "INSERT INTO cards "
-            "(month, day, destination, truck, person, time, color, sort_order, partner, is_stock, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "(month, day, destination, truck, person, time, color, sort_order, "
+            "partner, is_stock, stock_x, stock_y, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 "STOCK", 0,
                 destination, truck, person, time, color,
-                n, partner, 1,
+                n, partner, 1, stock_x, stock_y,
                 datetime.now().isoformat(timespec="seconds"),
             ),
         )
@@ -232,14 +247,18 @@ def place_card(card_id, month_key, day, sort_order=0):
         )
 
 
-def unplace_card(card_id):
-    """Return a card to the stock (駒台)."""
+def unplace_card(card_id, stock_x=0.0, stock_y=0.0):
+    """Return a card to the stock (駒台) at the given free position.
+
+    Also used to move a card within the 駒台 — it just rewrites the
+    stored x/y coordinates.
+    """
     ts = datetime.now().isoformat(timespec="seconds")
     with _conn() as conn:
         conn.execute(
             "UPDATE cards SET is_stock=1, month='STOCK', day=0, "
-            "updated_at=? WHERE id=?",
-            (ts, card_id),
+            "stock_x=?, stock_y=?, updated_at=? WHERE id=?",
+            (stock_x, stock_y, ts, card_id),
         )
 
 
@@ -671,14 +690,20 @@ def add_event_to_stock(title, color="red", span_days=1, note=""):
     except (TypeError, ValueError):
         span_days = 1
     with _conn() as conn:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM events WHERE is_stock=1"
+        ).fetchone()[0]
+        stock_x = 10 + (n % 5) * 132
+        stock_y = 10 + ((n // 5) % 4) * 42
         conn.execute(
-            "INSERT INTO events (month, day, span_days, title, color, note, is_stock, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO events (month, day, span_days, title, color, note, is_stock, "
+            "stock_x, stock_y, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
                 "STOCK", 0, span_days, title,
                 _safe_str(color) or "red",
                 _safe_str(note).strip(),
-                1,
+                1, stock_x, stock_y,
                 datetime.now().isoformat(timespec="seconds"),
             ),
         )
@@ -701,12 +726,14 @@ def place_event(event_id, month_key, day):
         )
 
 
-def unplace_event(event_id):
+def unplace_event(event_id, stock_x=0.0, stock_y=0.0):
+    """Return an event to the 駒台 (or move it within it) at the given position."""
     ts = datetime.now().isoformat(timespec="seconds")
     with _conn() as conn:
         conn.execute(
-            "UPDATE events SET is_stock=1, month='STOCK', day=0, created_at=? WHERE id=?",
-            (ts, event_id),
+            "UPDATE events SET is_stock=1, month='STOCK', day=0, "
+            "stock_x=?, stock_y=?, created_at=? WHERE id=?",
+            (stock_x, stock_y, ts, event_id),
         )
 
 
@@ -741,7 +768,7 @@ def seed_demo_data():
     Bump SEED_VERSION to force a wipe + re-seed when the demo content
     or naming convention changes.
     """
-    SEED_VERSION = "v2"
+    SEED_VERSION = "v3"
     if get_state("demo_seeded") == SEED_VERSION:
         return
 
